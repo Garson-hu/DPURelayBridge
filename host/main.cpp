@@ -7,8 +7,8 @@
 #include <arpa/inet.h>
 #include <getopt.h>
 
-#include <infiniband/verbs.h>
-#include <infiniband/mlx5dv.h>
+// #include <infiniband/verbs.h>
+// #include <infiniband/mlx5dv.h>
 
 #include "../common/protocol.h"
 #include "../common/logger.h"
@@ -147,7 +147,7 @@ int main(int argc, char *argv[]) {
     /* Open IB device */
     struct ibv_context *context = ibv_open_device(ib_dev);
     if (!context) {
-        SPDLOG_ERROR("Failed to open IB device '{}'", ib_devname);
+        SPDLOG_ERROR("Failed to open IB device '{}'", usr_par.ib_devname);
         ibv_free_device_list(dev_list);
         exit(EXIT_FAILURE);
     }
@@ -230,7 +230,7 @@ int main(int argc, char *argv[]) {
 
     if (connect(sockfd, (struct sockaddr *)&r_addr, sizeof(r_addr)) < 0) {
         SPDLOG_ERROR("Socket connection to DPU {}:{} failed. Errno: {}", usr_par.dst_ip, usr_par.dst_port, errno);
-        SPDLOG_ERROR("Please ensure Phase 2 (DPU Receiver) is running on the DPU Arm core.");
+        SPDLOG_ERROR("Please ensure DPU Receiver is running on the DPU Arm core.");
         exit(EXIT_FAILURE);
     }
 

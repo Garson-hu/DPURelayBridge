@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <arpa/inet.h> // inet_addr
+
 #include "devx_prm.h"
 #include "mlx5_ifc.h"
 #include "cgmk_utils.h"
@@ -92,10 +93,19 @@ create_cgmk_mkey(struct ibv_pd *pd, void *buf, size_t buf_sz)
 	}
 
 	// Cast pd to dv
-	struct mlx5dv_obj *pd_obj = &(struct mlx5dv_obj){
-		.pd.in = pd,
-		.pd.out = &(struct mlx5dv_pd){0},
-	};
+	// struct mlx5dv_obj *pd_obj = &(struct mlx5dv_obj){
+	// 	.pd.in = pd,
+	// 	.pd.out = &(struct mlx5dv_pd){0},
+	// };
+
+	struct mlx5dv_pd my_pd_out;
+	memset(&my_pd_out, 0, sizeof(my_pd_out));
+	struct mlx5dv_obj my_pd_obj;
+	memset(&my_pd_obj, 0, sizeof(my_pd_obj));
+	my_pd_obj.pd.in = pd;           
+	my_pd_obj.pd.out = &my_pd_out;
+	struct mlx5dv_obj *pd_obj = &my_pd_obj;
+
 	ret = mlx5dv_init_obj(pd_obj, MLX5DV_OBJ_PD);
 	if (ret) {
 		fprintf(stderr, "Not able to expose pdn from pd.\n");
@@ -237,10 +247,18 @@ cgmk_mr_crossing_reg(struct ibv_pd *pd, char *crossing_mr_desc, size_t crossing_
 	ret = deserialize_desc_data(crossing_mr_desc, crossing_mr_desc_sz, &mr_cr_data);
 
 	// Cast pd to dv
-	struct mlx5dv_obj *pd_obj = &(struct mlx5dv_obj){
-		.pd.in = pd,
-		.pd.out = &(struct mlx5dv_pd){0},
-	};
+	// struct mlx5dv_obj *pd_obj = &(struct mlx5dv_obj){
+	// 	.pd.in = pd,
+	// 	.pd.out = &(struct mlx5dv_pd){0},
+	// };
+	struct mlx5dv_pd my_pd_out;
+	memset(&my_pd_out, 0, sizeof(my_pd_out));
+	struct mlx5dv_obj my_pd_obj;
+	memset(&my_pd_obj, 0, sizeof(my_pd_obj));
+	my_pd_obj.pd.in = pd;           
+	my_pd_obj.pd.out = &my_pd_out;
+	struct mlx5dv_obj *pd_obj = &my_pd_obj;
+
 	ret = mlx5dv_init_obj(pd_obj, MLX5DV_OBJ_PD);
 	if (ret) {
 		fprintf(stderr, "Not able to expose pdn from pd.\n");
