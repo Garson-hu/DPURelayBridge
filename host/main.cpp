@@ -198,8 +198,7 @@ int main(int argc, char *argv[]) {
     populate_mem_info(primary_mr, token, BUFFER_PRIMARY, &primary_info);
     populate_mem_info(mirror_mr,  token, BUFFER_MIRROR,  &mirror_info);
 
-    SPDLOG_INFO("MKeys successfully exported. Local VHCA_ID: {}, Remote VHCA_ID: {}", 
-        primary_info.vhca_id, mirror_info.vhca_id);
+    SPDLOG_INFO("MKeys successfully exported!");
 
     // ---------------------------------------------------------
     // Step E: Connect to the local DPU and transfer control
@@ -231,8 +230,6 @@ int main(int argc, char *argv[]) {
     }
 
     SPDLOG_INFO("Memory credentials successfully handed over to the DPU!");
-    SPDLOG_INFO("Host Agent is now standing by. DPU will perform direct Memory access.");
-
 
     // ---------------------------------------------------------
     // Step F: Suspend and wait for the DPU's release signal (ACK)
