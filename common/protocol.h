@@ -13,6 +13,6 @@ enum BufferType {
 
 // Host send to local DPU's memory info
 struct HostMemInfo {
-    char desc_str[sizeof("0102:01020304:0102030405060708:01020304:0102030405060708090a0b0c0d0e0f10")];
+    char desc_str[256];
     BufferType type;         // Mark this is primary or mirror buffer
 };
