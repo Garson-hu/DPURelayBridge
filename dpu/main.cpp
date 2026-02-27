@@ -135,9 +135,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    SPDLOG_INFO("Received credentials! Primary [addr: 0x{:X}, size: {}], Mirror [addr: 0x{:X}, size: {}]",
-        primary_info.addr, primary_info.length, mirror_info.addr, mirror_info.length);
-    
+    SPDLOG_INFO("Received credentials!");
     
     // -------------------------------------------------------------------
     // Step D: use DevX to create cross-domain mkeys for the primary and mirror buffers
