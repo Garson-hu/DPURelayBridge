@@ -90,7 +90,8 @@ void populate_mem_info(struct cgmk_mkey* mr, const char* token, BufferType type,
     out_info->mkey = parsed_data.mkey;
     out_info->addr = (uint64_t)parsed_data.buf;
     out_info->length = parsed_data.buf_size;
-    memcpy(out_info->token, token, strlen(token));
+    memset(out_info->token, 0, sizeof(out_info->token));
+    strcpy(out_info->token, token);
     out_info->type = type;
 }
 
