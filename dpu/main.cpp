@@ -32,7 +32,13 @@ struct cgmk_mr_crossing* create_alias_from_info(struct ibv_pd *pd, const HostMem
     data.mkey = info.mkey;
     data.buf = (void*)info.addr;
     data.buf_size = info.length;
-    data.access_key_sz = strlen(info.token);
+    data.access_key_sz = strlen(info.token) + 1; // +1 for the null terminator
+    memcpy(data.access_key, info.token, data.access_key_sz);
+
+    if (data.access_key_sz > sizeof(data.access_key)) {
+        data.access_key_sz = sizeof(data.access_key);
+    }
+    
     memcpy(data.access_key, info.token, data.access_key_sz);
 
     // 2. Reuse the original tool function to serialize to a string
@@ -45,6 +51,7 @@ struct cgmk_mr_crossing* create_alias_from_info(struct ibv_pd *pd, const HostMem
 
     // 3. Call the underlying cross-domain registration function
     SPDLOG_DEBUG("Calling cgmk_mr_crossing_reg for VHCA_ID {}...", info.vhca_id);
+    SPDLOG_INFO("DEBUG: Registering Alias with Host_MKey: 0x{:X}, Token: {}", info.mkey, info.token);
     return cgmk_mr_crossing_reg(pd, desc_str, len);
 }
 
