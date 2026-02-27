@@ -25,7 +25,7 @@ extern "C" {
 // Convert the C++ communication structure back to the Legacy C expected descriptor string, and register the alias
 // --------------------------------------------------------------------------------------------------------------------
 
-struct cgmk_mr_crossing* register_cgmk_mr_crossing(struct ibv_pd *pd, const HostMemInfo* info) {
+struct cgmk_mr_crossing* create_alias_from_info(struct ibv_pd *pd, const HostMemInfo& info) {
     // 1. Restore the old desc_data structure
     struct desc_data data = {0};
     data.vhca_id = info.vhca_id;
