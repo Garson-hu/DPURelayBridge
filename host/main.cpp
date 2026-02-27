@@ -97,7 +97,8 @@ int main(int argc, char *argv[]) {
     }
 
     // * 16 MB buffer size for the buffer to be shared with the DPU
-    size_t BUF_SIZE = 16 * 1024 * 1024;                                             
+    // size_t BUF_SIZE = 16 * 1024 * 1024;  
+    size_t BUF_SIZE = 24000;
 
     SPDLOG_INFO("============================================");
     SPDLOG_INFO("  Host Agent Started  - Create GVMI MKey    ");
