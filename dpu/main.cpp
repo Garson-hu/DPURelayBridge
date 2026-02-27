@@ -20,34 +20,6 @@ extern "C" {
     #include "../common/cgmk_legacy/cross_gvmi_mkey.h"
 }
 
-
-// --------------------------------------------------------------------------------------------------------------------
-// Convert the C++ communication structure back to the Legacy C expected descriptor string, and register the alias
-// --------------------------------------------------------------------------------------------------------------------
-// struct cgmk_mr_crossing* create_alias_from_info(struct ibv_pd *pd, const HostMemInfo& info) {
-//     // 1. Restore the old desc_data structure
-//     struct desc_data data = {0};
-//     data.vhca_id = info.vhca_id;
-//     data.mkey = info.mkey;
-//     data.buf = (void*)info.addr;
-//     data.buf_size = info.length;
-//     data.access_key_sz = strlen(info.token);
-//     memcpy(data.access_key, info.token, data.access_key_sz);
-
-//     // 2. Reuse the original tool function to serialize into a string
-//     char desc_str[256] = {0};
-//     size_t len = serialize_desc_data(&data, desc_str, sizeof(desc_str));
-//     if (len == 0) {
-//         SPDLOG_ERROR("Failed to serialize desc_data back to string.");
-//         return nullptr;
-//     }
-
-//     // 3. Call the underlying cross-domain registration function
-//     SPDLOG_DEBUG("Calling cgmk_mr_crossing_reg for VHCA_ID {}...", info.vhca_id);
-//     return cgmk_mr_crossing_reg(pd, desc_str, len);
-// }
-
-
 // ---------------------------------
 // DPU receiver main function
 // ---------------------------------
