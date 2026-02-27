@@ -16,3 +16,5 @@ FetchContent_MakeAvailable(spdlog)
 
 # Tell CMake to process the host directory
 add_subdirectory(host)
+
+add_subdirectory(dpu)

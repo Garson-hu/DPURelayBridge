@@ -3,8 +3,8 @@
 #include <stddef.h>
 
 /* 
- * Primary Buffer: the buffer that is used by the Host
- * Mirror Buffer: the buffer that is used by the DPU
+ * Primary Buffer: the buffer that is used by the Local Host
+ * Mirror Buffer: the buffer that is used by the Remote Host
  */
 enum BufferType {
     BUFFER_PRIMARY = 0,
