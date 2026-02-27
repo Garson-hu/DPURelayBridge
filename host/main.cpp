@@ -70,42 +70,16 @@ static int parse_command_line(int argc, char *argv[], struct cli_input *usr_par)
 
 // Helper function：Change the old cgmk_mr_export function to convert the old string to our new structure
 void populate_mem_info(struct cgmk_mkey* mr, const char* token, BufferType type, HostMemInfo* out_info) {
-    char mr_desc[256] = {0};
+    memset(out_info, 0, sizeof(HostMemInfo));
+    out_info->type = type;
     
-    // 1. 调用底层生成包含 vhca_id 的描述符字符串
-    size_t desc_len = cgmk_mr_export(mr, (char*)token, strlen(token), mr_desc, sizeof(mr_desc));
+    // Write the exported string directly to the structure
+    size_t desc_len = cgmk_mr_export(mr, (char*)token, strlen(token), out_info->desc_str, sizeof(out_info->desc_str));
 
     if (desc_len == 0) {
         SPDLOG_ERROR("Failed to export MR!");
         exit(1);
     }
-
-    SPDLOG_DEBUG("Raw MR Descriptor string: {}", mr_desc);
-
-    // 2. 使用安全的局部变量来接收解析数据，彻底抛弃 deserialize_desc_data
-    unsigned int parsed_vhca_id = 0;
-    unsigned int parsed_mkey = 0;
-    unsigned long long parsed_addr = 0;
-    unsigned int parsed_size = 0;
-    
-    // 强制按 32位(%x) 和 64位(%llx) 安全提取，绝不越界
-    if (sscanf(mr_desc, "%x:%x:%llx:%x", &parsed_vhca_id, &parsed_mkey, &parsed_addr, &parsed_size) != 4) {
-        SPDLOG_ERROR("Failed to safely parse MR descriptor string.");
-        exit(1);
-    }
-
-    // 3. 填入新的 C++ 结构体
-    out_info->vhca_id = parsed_vhca_id;
-    out_info->mkey    = parsed_mkey;
-    out_info->addr    = parsed_addr;
-    out_info->length  = parsed_size;
-    
-    memset(out_info->token, 0, sizeof(out_info->token));
-    strcpy(out_info->token, token);
-    
-    out_info->type = type;
-
-    SPDLOG_INFO("Safely extracted -> VHCA_ID: 0x{:X}, MKEY: 0x{:X}", out_info->vhca_id, out_info->mkey);
 }
 
 int main(int argc, char *argv[]) {
@@ -181,19 +155,15 @@ int main(int argc, char *argv[]) {
     // ------------------------------------------------------------------------------ 
 
     SPDLOG_DEBUG("Allocating and signing Primary and Mirror buffers...");
-    void *primary_buf = malloc(BUF_SIZE);             /* Memory buffer on the same machine as the Host */                              
-    void *mirror_buf  = malloc(BUF_SIZE);             /* Memory buffer on the remote machine (for copy use) */
+    void *primary_buf = nullptr;
+    void *mirror_buf  = nullptr;
+    
+    // Use page alignment to allocate memory, instead of malloc
+    posix_memalign(&primary_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
+    posix_memalign(&mirror_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
 
     if (!primary_buf || !mirror_buf) {
-        SPDLOG_ERROR("Failed to allocate host memory.");
-        exit(EXIT_FAILURE);
-    }
-
-    // sign_buffer will write some magic numbers in the memory, for the subsequent data integrity verification
-    if (sign_buffer(primary_buf, BUF_SIZE) != 0 || sign_buffer(mirror_buf, BUF_SIZE) != 0) {
-        SPDLOG_ERROR("Failed to sign buffers.");
-        free(primary_buf);
-        free(mirror_buf);
+        SPDLOG_ERROR("Failed to allocate aligned host memory.");
         exit(EXIT_FAILURE);
     }
 
