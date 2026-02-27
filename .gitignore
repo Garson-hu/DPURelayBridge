@@ -1,0 +1,5 @@
+# ignore build outputs
+/build/**
+
+# but keep this script
+!/build/clear_cmake.sh
