@@ -283,6 +283,20 @@ cgmk_mr_crossing_reg(struct ibv_pd *pd, char *crossing_mr_desc, size_t crossing_
 	memcpy(access_key, mr_cr_data.access_key, mr_cr_data.access_key_sz);
 	DEVX_SET(alias_context, alias_ctx, metadata, pd_obj->pd.out->pdn);
 
+	// Debug
+	fprintf(stderr, "========== DEVX IN ARGS ==========\n");
+    fprintf(stderr, "1. vhca_id      : 0x%x (%d)\n", mr_cr_data.vhca_id, mr_cr_data.vhca_id);
+    fprintf(stderr, "2. mkey         : 0x%x\n", mr_cr_data.mkey);
+    fprintf(stderr, "   mkey >> 8    : 0x%x\n", mr_cr_data.mkey >> 8);
+    fprintf(stderr, "3. pdn          : 0x%x\n", pd_obj->pd.out->pdn);
+    fprintf(stderr, "4. key_size     : %zu\n", mr_cr_data.access_key_sz);
+    fprintf(stderr, "5. key_hex_dump : ");
+    for (size_t i = 0; i < mr_cr_data.access_key_sz && i < 32; ++i) {
+        fprintf(stderr, "%02x ", (unsigned char)mr_cr_data.access_key[i]);
+    }
+    fprintf(stderr, "\n==================================\n");
+	// End of Debug
+
 	alias = mlx5dv_devx_obj_create(pd->context, in, sizeof(in), out, sizeof(out));
 	if (!alias) {
 		fprintf(stderr, "Failed to create MKEY Alias Object (%d, %d): %m.\n", errno, EREMOTEIO);
