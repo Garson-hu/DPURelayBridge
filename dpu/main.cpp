@@ -115,7 +115,7 @@ int main(int argc, char *argv[]) {
     
     SPDLOG_DEBUG("Creating Alias MKeys mapping to Host memory...");
 
-    struct cgmk_mr_crossing* primary_alias = cgmk_mr_crossing_reg(pd, primary_info.desc_str, sizeof(primary_info.desc_str));
+    struct cgmk_mr_crossing* primary_alias = cgmk_mr_crossing_reg(pd, primary_info.desc_str, strlen(primary_info.desc_str));
     if (!primary_alias) {
         SPDLOG_ERROR("Failed to create Primary Alias MKey.");
         exit(EXIT_FAILURE);
