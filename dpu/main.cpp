@@ -25,59 +25,26 @@ extern "C" {
 // Convert the C++ communication structure back to the Legacy C expected descriptor string, and register the alias
 // --------------------------------------------------------------------------------------------------------------------
 struct cgmk_mr_crossing* create_alias_from_info(struct ibv_pd *pd, const HostMemInfo& info) {
-    // 1. from ibv_pd extract underline PDn (Protection Domain Number)
-    struct mlx5dv_pd my_pd_out;
-    memset(&my_pd_out, 0, sizeof(my_pd_out));
-    struct mlx5dv_obj my_pd_obj;
-    memset(&my_pd_obj, 0, sizeof(my_pd_obj));
-    my_pd_obj.pd.in = pd;
-    my_pd_obj.pd.out = &my_pd_out;
+    // 1. Restore the old desc_data structure
+    struct desc_data data = {0};
+    data.vhca_id = info.vhca_id;
+    data.mkey = info.mkey;
+    data.buf = (void*)info.addr;
+    data.buf_size = info.length;
+    data.access_key_sz = strlen(info.token);
+    memcpy(data.access_key, info.token, data.access_key_sz);
 
-    if (mlx5dv_init_obj(&my_pd_obj, MLX5DV_OBJ_PD)) {
-        SPDLOG_ERROR("Not able to expose pdn from pd.");
+    // 2. Reuse the original tool function to serialize into a string
+    char desc_str[256] = {0};
+    size_t len = serialize_desc_data(&data, desc_str, sizeof(desc_str));
+    if (len == 0) {
+        SPDLOG_ERROR("Failed to serialize desc_data back to string.");
         return nullptr;
     }
 
-    // 2. Prepare DevX command structure (directly use hardware macro definitions)
-    uint32_t in[DEVX_ST_SZ_DW(create_alias_obj_in)] = {0};
-    uint32_t out[DEVX_ST_SZ_DW(create_alias_obj_out)] = {0};
-
-    void *hdr = DEVX_ADDR_OF(create_alias_obj_in, in, hdr);
-    void *alias_ctx = DEVX_ADDR_OF(create_alias_obj_in, in, alias_ctx);
-
-    // 3. Fill in parameters: use safe, non-string-polluted C++ data
-    DEVX_SET(general_obj_in_cmd_hdr, hdr, opcode, MLX5_CMD_OP_CREATE_GENERAL_OBJECT);
-    DEVX_SET(general_obj_in_cmd_hdr, hdr, obj_type, MLX5_GENERAL_OBJ_TYPE_MKEY);
-    DEVX_SET(general_obj_in_cmd_hdr, hdr, alias_object, 1);
-    
-    DEVX_SET(alias_context, alias_ctx, vhca_id_to_be_accessed, info.vhca_id);
-    DEVX_SET(alias_context, alias_ctx, object_id_to_be_accessed, info.mkey >> 8); 
-
-    // Fill in 32-byte cross-domain access password Token (hardware strictly requires 256 bits)
-    void *access_key = DEVX_ADDR_OF(alias_context, alias_ctx, access_key);
-    memcpy(access_key, info.token, 32); 
-
-    DEVX_SET(alias_context, alias_ctx, metadata, my_pd_out.pdn);
-
-    // 4. Send command to network card hardware!
-    struct mlx5dv_devx_obj *alias = mlx5dv_devx_obj_create(pd->context, in, sizeof(in), out, sizeof(out));
-    if (!alias) {
-        SPDLOG_ERROR("DevX Hardware Rejected Alias! status 0x{:X}, syndrome 0x{:X}", 
-                     DEVX_GET(create_alias_obj_out, out, hdr.status), 
-                     DEVX_GET(create_alias_obj_out, out, hdr.syndrome));
-        return nullptr;
-    }
-
-    // 5. Pack the result returned by the hardware into a structure for subsequent use
-    struct cgmk_mr_crossing *mr_crossing = (struct cgmk_mr_crossing*)calloc(1, sizeof(*mr_crossing));
-    mr_crossing->pd = pd;
-    mr_crossing->alias_obj = alias;
-    // LKey size is 32 bits (alias id == mkey idx == 24 bits)
-    mr_crossing->lkey = DEVX_GET(create_alias_obj_out, out, hdr.obj_id) << 8; 
-    mr_crossing->addr = (void*)info.addr;
-    mr_crossing->length = info.length;
-    
-    return mr_crossing;
+    // 3. Call the underlying cross-domain registration function
+    SPDLOG_DEBUG("Calling cgmk_mr_crossing_reg for VHCA_ID {}...", info.vhca_id);
+    return cgmk_mr_crossing_reg(pd, desc_str, len);
 }
 
 
@@ -178,18 +145,18 @@ int main(int argc, char *argv[]) {
     
     SPDLOG_DEBUG("Creating Alias MKeys mapping to Host memory...");
 
-    struct cgmk_mr_crossing* primary_alias = create_alias_from_info(pd, primary_info);
+    struct cgmk_mr_crossing* primary_alias = cgmk_mr_crossing_reg(pd, primary_info.desc_str, strlen(primary_info.desc_str));
     if (!primary_alias) {
         SPDLOG_ERROR("Failed to create Primary Alias MKey.");
         exit(EXIT_FAILURE);
     }
 
-    struct cgmk_mr_crossing* mirror_alias = create_alias_from_info(pd, mirror_info);
+    struct cgmk_mr_crossing* mirror_alias = cgmk_mr_crossing_reg(pd, mirror_info.desc_str, strlen(mirror_info.desc_str));
     if (!mirror_alias) {
         SPDLOG_ERROR("Failed to create Mirror Alias MKey.");
         exit(EXIT_FAILURE);
     }
-    
+        
     SPDLOG_INFO("Alias MKeys for primary and mirror buffers created successfully!");
     
     // -------------------------------------------------------------------
