@@ -103,7 +103,12 @@ int main(int argc, char *argv[]) {
     ssize_t ret1 = recv(client_socket, &primary_info, sizeof(HostMemInfo), MSG_WAITALL);
     // ssize_t ret2 = recv(client_socket, &mirror_info, sizeof(HostMemInfo), MSG_WAITALL);
 
-    if (ret1 != sizeof(HostMemInfo) || ret2 != sizeof(HostMemInfo)) {
+    // if (ret1 != sizeof(HostMemInfo) || ret2 != sizeof(HostMemInfo)) {
+    //     SPDLOG_ERROR("Failed to receive full HostMemInfo structures.");
+    //     exit(EXIT_FAILURE);
+    // }
+    
+    if (ret1 != sizeof(HostMemInfo)) {
         SPDLOG_ERROR("Failed to receive full HostMemInfo structures.");
         exit(EXIT_FAILURE);
     }
