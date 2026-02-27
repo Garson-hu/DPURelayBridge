@@ -157,13 +157,18 @@ int main(int argc, char *argv[]) {
 
     SPDLOG_DEBUG("Allocating and signing Primary and Mirror buffers...");
     void *primary_buf = nullptr;
-    void *mirror_buf  = nullptr;
+    // void *mirror_buf  = nullptr;
     
     // Use page alignment to allocate memory, instead of malloc
     posix_memalign(&primary_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
-    posix_memalign(&mirror_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
+    // posix_memalign(&mirror_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
 
-    if (!primary_buf || !mirror_buf) {
+    // if (!primary_buf || !mirror_buf) {
+    //     SPDLOG_ERROR("Failed to allocate aligned host memory.");
+    //     exit(EXIT_FAILURE);
+    // }
+
+    if (!primary_buf) {
         SPDLOG_ERROR("Failed to allocate aligned host memory.");
         exit(EXIT_FAILURE);
     }
@@ -174,30 +179,36 @@ int main(int argc, char *argv[]) {
 
     SPDLOG_DEBUG("Creating Cross-GVMI MKeys...");
     struct cgmk_mkey *primary_mr = create_cgmk_mkey(pd, primary_buf, BUF_SIZE);
-    struct cgmk_mkey *mirror_mr  = create_cgmk_mkey(pd, mirror_buf, BUF_SIZE);
+    // struct cgmk_mkey *mirror_mr  = create_cgmk_mkey(pd, mirror_buf, BUF_SIZE);
 
-    if (!primary_mr || !mirror_mr) {
+    // if (!primary_mr || !mirror_mr) {
+    //     SPDLOG_ERROR("Failed to create Cross-GVMI MKeys.");
+    //     free(primary_buf);
+    //     // free(mirror_buf);
+    //     exit(EXIT_FAILURE);
+    // }
+
+    if (!primary_mr) {
         SPDLOG_ERROR("Failed to create Cross-GVMI MKeys.");
         free(primary_buf);
-        free(mirror_buf);
+        // free(mirror_buf);
         exit(EXIT_FAILURE);
     }
     
-    SPDLOG_INFO("Cross-GVMI MKeys created. Primary LKey: 0x{:X}, Mirror LKey: 0x{:X}", 
-        primary_mr->lkey, mirror_mr->lkey);
+    SPDLOG_INFO("Cross-GVMI MKeys created!");
 
     // ------------------------------------------------------------------------------
     // Step D: Export the MKey information as HostMemInfo structure
     // ------------------------------------------------------------------------------
     
     HostMemInfo primary_info = {0};
-    HostMemInfo mirror_info = {0};
+    // HostMemInfo mirror_info = {0};
 
     // * The token is used to access the Cross-GVMI MKey for the remote machine
     const char* token = "eShVkYp3s6v9y$B&E)H@McQfTjWnZq4t";
 
     populate_mem_info(primary_mr, token, BUFFER_PRIMARY, &primary_info);
-    populate_mem_info(mirror_mr,  token, BUFFER_MIRROR,  &mirror_info);
+    // populate_mem_info(mirror_mr,  token, BUFFER_MIRROR,  &mirror_info);
 
     SPDLOG_INFO("MKeys successfully exported!");
 
@@ -222,9 +233,15 @@ int main(int argc, char *argv[]) {
 
     // * Send the HostMemInfo structures to the DPU
     ssize_t ret1 = write(sockfd, &primary_info, sizeof(HostMemInfo));
-    ssize_t ret2 = write(sockfd, &mirror_info, sizeof(HostMemInfo));
+    // ssize_t ret2 = write(sockfd, &mirror_info, sizeof(HostMemInfo));
 
-    if (ret1 != sizeof(HostMemInfo) || ret2 != sizeof(HostMemInfo)) {
+    // if (ret1 != sizeof(HostMemInfo) || ret2 != sizeof(HostMemInfo)) {
+    //     SPDLOG_ERROR("Failed to send HostMemInfo structures to DPU.");
+    //     close(sockfd);
+    //     exit(EXIT_FAILURE);
+    // }
+
+    if (ret1 != sizeof(HostMemInfo)) {
         SPDLOG_ERROR("Failed to send HostMemInfo structures to DPU.");
         close(sockfd);
         exit(EXIT_FAILURE);
@@ -251,9 +268,9 @@ int main(int argc, char *argv[]) {
     // ---------------------------------------------------------
     close(sockfd);
     dereg_cgmk_mkey(primary_mr);
-    dereg_cgmk_mkey(mirror_mr);
+    // dereg_cgmk_mkey(mirror_mr);
     free(primary_buf);
-    free(mirror_buf);
+    // free(mirror_buf);
     ibv_dealloc_pd(pd);
     ibv_close_device(context);
     ibv_free_device_list(dev_list);
