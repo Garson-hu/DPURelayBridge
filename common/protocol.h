@@ -17,6 +17,6 @@ struct HostMemInfo {
     uint32_t mkey;           // Memory's MKey (lkey)
     uint64_t addr;           // Virtual address start address
     size_t   length;         // Memory block size
-    char     token[32];      // Cross-GVMI access password
+    char     token[64];      // Cross-GVMI access password
     BufferType type;         // Mark this is primary or mirror buffer
 };
