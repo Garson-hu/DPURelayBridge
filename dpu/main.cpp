@@ -138,8 +138,7 @@ int main(int argc, char *argv[]) {
     close(client_socket);
     close(server_fd);
 
-    SPDLOG_INFO("Host CPU is now completely offloaded.");
-    SPDLOG_INFO("Phase 2 Complete! DPU is holding the keys.");
+    SPDLOG_INFO("Host CPU is now completely offloaded. DPU is holding the keys.");
 
     // Clean up resources (will keep until the program ends in actual application)
     dereg_cgmk_mr_crossing(primary_alias);
