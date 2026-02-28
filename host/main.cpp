@@ -159,8 +159,10 @@ int main(int argc, char *argv[]) {
     void *mirror_buf  = nullptr;
     
     // Use page alignment to allocate memory, instead of malloc
-    posix_memalign(&primary_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
-    posix_memalign(&mirror_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
+    void *primary_buf = malloc(BUF_SIZE);
+    void *mirror_buf = malloc(BUF_SIZE);
+    // posix_memalign(&primary_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
+    // posix_memalign(&mirror_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
 
     if (!primary_buf || !mirror_buf) {
         SPDLOG_ERROR("Failed to allocate aligned host memory.");
