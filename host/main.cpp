@@ -18,6 +18,8 @@ extern "C" {
     #include "../common/cgmk_legacy/cgmk_utils.h"
 }
 
+// #define BUF_SIZE 16 * 1024 * 1024;  
+#define BUF_SIZE 24000
 
 /* Command line input structure:
  * - dst_ip: the IP address of the DPU
@@ -99,7 +101,6 @@ int main(int argc, char *argv[]) {
     }
 
     // * 16 MB buffer size for the buffer to be shared with the DPU
-    size_t BUF_SIZE = 16 * 1024 * 1024;  
 
     SPDLOG_INFO("============================================");
     SPDLOG_INFO("  Host Agent Started  - Create GVMI MKey    ");
@@ -165,12 +166,12 @@ int main(int argc, char *argv[]) {
     // posix_memalign(&mirror_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
     
     void *primary_buf = malloc(BUF_SIZE);
-    void *mirror_buf = malloc(BUF_SIZE);
+    // void *mirror_buf = malloc(BUF_SIZE);
 
     int retp = sign_buffer(primary_buf, BUF_SIZE);
-    int retm = sign_buffer(mirror_buf, BUF_SIZE);
+    // int retm = sign_buffer(mirror_buf, BUF_SIZE);
 
-    if (retp != 0 || retm != 0) {
+    if (retp != 0 ) { // || retm != 0
         SPDLOG_ERROR("Failed to sign buffers.");
         exit(EXIT_FAILURE);
     }
@@ -181,12 +182,12 @@ int main(int argc, char *argv[]) {
 
     SPDLOG_DEBUG("Creating Cross-GVMI MKeys...");
     struct cgmk_mkey *primary_mr = create_cgmk_mkey(pd, primary_buf, BUF_SIZE);
-    struct cgmk_mkey *mirror_mr  = create_cgmk_mkey(pd, mirror_buf, BUF_SIZE);
+    // struct cgmk_mkey *mirror_mr  = create_cgmk_mkey(pd, mirror_buf, BUF_SIZE);
 
-    if (!primary_mr || !mirror_mr) {
+    if (!primary_mr ) { // || !mirror_mr
         SPDLOG_ERROR("Failed to create Cross-GVMI MKeys.");
         free(primary_buf);
-        free(mirror_buf);
+        // free(mirror_buf);
         exit(EXIT_FAILURE);
     }
     
@@ -197,16 +198,17 @@ int main(int argc, char *argv[]) {
     // ------------------------------------------------------------------------------
     
     HostMemInfo primary_info = {0};
-    HostMemInfo mirror_info = {0};
+    // HostMemInfo mirror_info = {0};
 
     // * The token is used to access the Cross-GVMI MKey for the remote machine
     const char* token = "eShVkYp3s6v9y$B&E)H@McQfTjWnZq4t";
 
     populate_mem_info(primary_mr, token, BUFFER_PRIMARY, &primary_info);
-    populate_mem_info(mirror_mr,  token, BUFFER_MIRROR,  &mirror_info);
+    // populate_mem_info(mirror_mr,  token, BUFFER_MIRROR,  &mirror_info);
 
     SPDLOG_INFO("MKeys successfully exported!");
-
+    SPDLOG_INFO("sizeof(HostMemInfo) = {}", sizeof(HostMemInfo));
+    SPDLOG_INFO("sizeof(desc_str) = {}", strlen(primary_info.desc_str));
     // ---------------------------------------------------------
     // Step E: Connect to the local DPU and transfer control
     // ---------------------------------------------------------
@@ -228,9 +230,9 @@ int main(int argc, char *argv[]) {
 
     // * Send the HostMemInfo structures to the DPU
     ssize_t ret1 = write(sockfd, &primary_info, sizeof(HostMemInfo));
-    ssize_t ret2 = write(sockfd, &mirror_info, sizeof(HostMemInfo));
+    // ssize_t ret2 = write(sockfd, &mirror_info, sizeof(HostMemInfo));
 
-    if (ret1 != sizeof(HostMemInfo) || ret2 != sizeof(HostMemInfo)) {
+    if (ret1 != sizeof(HostMemInfo) ) { // || ret2 != sizeof(HostMemInfo)
         SPDLOG_ERROR("Failed to send HostMemInfo structures to DPU.");
         close(sockfd);
         exit(EXIT_FAILURE);
@@ -257,9 +259,9 @@ int main(int argc, char *argv[]) {
     // ---------------------------------------------------------
     close(sockfd);
     dereg_cgmk_mkey(primary_mr);
-    dereg_cgmk_mkey(mirror_mr);
+    // dereg_cgmk_mkey(mirror_mr);
     free(primary_buf);
-    free(mirror_buf);
+    // free(mirror_buf);
     ibv_dealloc_pd(pd);
     ibv_close_device(context);
     ibv_free_device_list(dev_list);
