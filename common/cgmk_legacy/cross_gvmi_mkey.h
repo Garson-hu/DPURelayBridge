@@ -209,6 +209,19 @@ cgmk_mr_export(
 	access_key = DEVX_ADDR_OF(allow_other_vhca_access_in, in, access_key);
 	memcpy(access_key, token, sizeof(char) * token_sz);
 
+	// !Debug
+    fprintf(stderr, "========== HOST EXPORT ARGS ==========\n");
+    fprintf(stderr, "1. export_key_size : %zu\n", token_sz); 
+    fprintf(stderr, "2. export_key_dump : ");
+    
+    // 强制按 32 字节（硬件实际读取的长度）打印内存快照
+    unsigned char *dump_ptr = (unsigned char *)access_key;
+    for (int i = 0; i < 32; ++i) {
+        fprintf(stderr, "%02x ", dump_ptr[i]);
+    }
+    fprintf(stderr, "\n======================================\n");
+    // !End of Debug
+
 	ret = mlx5dv_devx_general_cmd(mr->context, in, sizeof(in), out, sizeof(out));
 	if (ret) {
 		fprintf(stderr, "Failed to allow other vhca access.\n");
@@ -283,7 +296,7 @@ cgmk_mr_crossing_reg(struct ibv_pd *pd, char *crossing_mr_desc, size_t crossing_
 	memcpy(access_key, mr_cr_data.access_key, mr_cr_data.access_key_sz);
 	DEVX_SET(alias_context, alias_ctx, metadata, pd_obj->pd.out->pdn);
 
-	// Debug
+	// !Debug
 	fprintf(stderr, "========== DEVX IN ARGS ==========\n");
     fprintf(stderr, "1. vhca_id      : 0x%x (%d)\n", mr_cr_data.vhca_id, mr_cr_data.vhca_id);
     fprintf(stderr, "2. mkey         : 0x%x\n", mr_cr_data.mkey);
@@ -295,7 +308,7 @@ cgmk_mr_crossing_reg(struct ibv_pd *pd, char *crossing_mr_desc, size_t crossing_
         fprintf(stderr, "%02x ", (unsigned char)mr_cr_data.access_key[i]);
     }
     fprintf(stderr, "\n==================================\n");
-	// End of Debug
+	// !End of Debug
 
 	alias = mlx5dv_devx_obj_create(pd->context, in, sizeof(in), out, sizeof(out));
 	if (!alias) {
