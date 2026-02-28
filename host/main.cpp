@@ -167,8 +167,11 @@ int main(int argc, char *argv[]) {
     void *primary_buf = malloc(BUF_SIZE);
     void *mirror_buf = malloc(BUF_SIZE);
 
-    if (!primary_buf || !mirror_buf) {
-        SPDLOG_ERROR("Failed to allocate aligned host memory.");
+    int retp = sign_buffer(primary_buf, BUF_SIZE);
+    int retm = sign_buffer(mirror_buf, BUF_SIZE);
+
+    if (retp != 0 || retm != 0) {
+        SPDLOG_ERROR("Failed to sign buffers.");
         exit(EXIT_FAILURE);
     }
 
