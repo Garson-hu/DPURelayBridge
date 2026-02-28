@@ -101,14 +101,9 @@ int main(int argc, char *argv[]) {
     HostMemInfo primary_info;
 
     ssize_t ret1 = recv(client_socket, &primary_info, sizeof(HostMemInfo), MSG_WAITALL);
-    // ssize_t ret2 = recv(client_socket, &mirror_info, sizeof(HostMemInfo), MSG_WAITALL);
+    ssize_t ret2 = recv(client_socket, &mirror_info, sizeof(HostMemInfo), MSG_WAITALL);
 
-    // if (ret1 != sizeof(HostMemInfo) || ret2 != sizeof(HostMemInfo)) {
-    //     SPDLOG_ERROR("Failed to receive full HostMemInfo structures.");
-    //     exit(EXIT_FAILURE);
-    // }
-    
-    if (ret1 != sizeof(HostMemInfo)) {
+    if (ret1 != sizeof(HostMemInfo) || ret2 != sizeof(HostMemInfo)) {
         SPDLOG_ERROR("Failed to receive full HostMemInfo structures.");
         exit(EXIT_FAILURE);
     }
@@ -127,11 +122,11 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    // struct cgmk_mr_crossing* mirror_alias = cgmk_mr_crossing_reg(pd, mirror_info.desc_str, strlen(mirror_info.desc_str) + 1);
-    // if (!mirror_alias) {
-    //     SPDLOG_ERROR("Failed to create Mirror Alias MKey.");
-    //     exit(EXIT_FAILURE);
-    // }
+    struct cgmk_mr_crossing* mirror_alias = cgmk_mr_crossing_reg(pd, mirror_info.desc_str, strlen(mirror_info.desc_str) + 1);
+    if (!mirror_alias) {
+        SPDLOG_ERROR("Failed to create Mirror Alias MKey.");
+        exit(EXIT_FAILURE);
+    }
         
     SPDLOG_INFO("Alias MKeys for primary and mirror buffers created successfully!");
     
@@ -148,7 +143,7 @@ int main(int argc, char *argv[]) {
 
     // Clean up resources (will keep until the program ends in actual application)
     dereg_cgmk_mr_crossing(primary_alias);
-    // dereg_cgmk_mr_crossing(mirror_alias);
+    dereg_cgmk_mr_crossing(mirror_alias);
     ibv_dealloc_pd(pd);
     ibv_close_device(context);
     ibv_free_device_list(dev_list);
