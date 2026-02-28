@@ -20,7 +20,8 @@ extern "C" {
     #include "../common/cgmk_legacy/cross_gvmi_mkey.h"
 }
 
-#define LOCAL_BUF_SIZE 24000
+// #define LOCAL_BUF_SIZE 24000 // 24KB
+#define LOCAL_BUF_SIZE 16 * 1024 * 1024 // 16MB
 
 # define IB_DEVNAME "mlx5_0"
 # define LISTEN_PORT 1234
@@ -142,7 +143,7 @@ static int modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *qp_attr, struct mlx5
 // ---------------------------------
 int main(int argc, char *argv[]) {
 
-    init_logger();
+    // init_logger();
     // The device we use is mlx5_0 (e.g. represent the external InfiniBand/Ethernet port)
     
     SPDLOG_INFO("============================================");
@@ -190,7 +191,6 @@ int main(int argc, char *argv[]) {
     }
     
     SPDLOG_DEBUG("PD allocated successfully.");
-
 
     // -----------------------------------------------------
     // Step A2: Init DCI QP and Enable MMO 
@@ -338,16 +338,19 @@ int main(int argc, char *argv[]) {
     // Step C: Receive Host memory metadata
     // -------------------------------------------------------------------
 
-    HostMemInfo primary_info, mirror_info;
+    HostMemInfo primary_info;
+    // HostMemInfo mirror_info;
 
     ssize_t ret1 = recv(client_socket, &primary_info, sizeof(HostMemInfo), MSG_WAITALL);
-    ssize_t ret2 = recv(client_socket, &mirror_info, sizeof(HostMemInfo), MSG_WAITALL);
+    // ssize_t ret2 = recv(client_socket, &mirror_info, sizeof(HostMemInfo), MSG_WAITALL);
 
-    if (ret1 != sizeof(HostMemInfo) || ret2 != sizeof(HostMemInfo)) {
+    if (ret1 != sizeof(HostMemInfo) /* || ret2 != sizeof(HostMemInfo) */) {
         SPDLOG_ERROR("Failed to receive full HostMemInfo structures.");
         exit(EXIT_FAILURE);
     }
 
+    SPDLOG_INFO("sizeof(HostMemInfo) = {}", sizeof(HostMemInfo));
+    SPDLOG_INFO("sizeof(desc_str) = {}", strlen(primary_info.desc_str));
     SPDLOG_INFO("Received credentials!");
     
     // -------------------------------------------------------------------
@@ -356,17 +359,18 @@ int main(int argc, char *argv[]) {
     
     SPDLOG_DEBUG("Creating Alias MKeys mapping to Host memory...");
 
-    struct cgmk_mr_crossing* primary_alias = cgmk_mr_crossing_reg(pd, primary_info.desc_str, strlen(primary_info.desc_str) + 1);
+    struct cgmk_mr_crossing* primary_alias = cgmk_mr_crossing_reg(pd, primary_info.desc_str, 73);
+    primary_info.desc_str[sizeof(primary_info.desc_str) - 1] = '\0';
     if (!primary_alias) {
         SPDLOG_ERROR("Failed to create Primary Alias MKey.");
         exit(EXIT_FAILURE);
     }
 
-    struct cgmk_mr_crossing* mirror_alias = cgmk_mr_crossing_reg(pd, mirror_info.desc_str, strlen(mirror_info.desc_str) + 1);
-    if (!mirror_alias) {
-        SPDLOG_ERROR("Failed to create Mirror Alias MKey.");
-        exit(EXIT_FAILURE);
-    }
+    // struct cgmk_mr_crossing* mirror_alias = cgmk_mr_crossing_reg(pd, mirror_info.desc_str, strlen(mirror_info.desc_str) + 1);
+    // if (!mirror_alias) {
+    //     SPDLOG_ERROR("Failed to create Mirror Alias MKey.");
+    //     exit(EXIT_FAILURE);
+    // }
         
     SPDLOG_INFO("Alias MKeys for primary and mirror buffers created successfully!");
     
@@ -383,13 +387,13 @@ int main(int argc, char *argv[]) {
 
     // Clean up resources (will keep until the program ends in actual application)
     dereg_cgmk_mr_crossing(primary_alias);
-    dereg_cgmk_mr_crossing(mirror_alias);
+    // dereg_cgmk_mr_crossing(mirror_alias);
 
     if (qp) ibv_destroy_qp(qp);
     if (cq_ex) ibv_destroy_cq(ibv_cq_ex_to_cq(cq_ex));
     if (local_mr) ibv_dereg_mr(local_mr);
     if (local_buf) free(local_buf);
-
+    
     ibv_dealloc_pd(pd);
     ibv_close_device(context);
     ibv_free_device_list(dev_list);
