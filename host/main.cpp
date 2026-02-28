@@ -76,6 +76,8 @@ void populate_mem_info(struct cgmk_mkey* mr, const char* token, BufferType type,
     // Write the exported string directly to the structure
     size_t desc_len = cgmk_mr_export(mr, (char*)token, strlen(token) + 1, out_info->desc_str, sizeof(out_info->desc_str));
 
+    SPDLOG_DEBUG("Raw MR Descriptor string: {}", out_info->desc_str);
+
     if (desc_len == 0) {
         SPDLOG_ERROR("Failed to export MR!");
         exit(1);
