@@ -133,7 +133,7 @@ create_cgmk_mkey(struct ibv_pd *pd, void *buf, size_t buf_sz)
 	DEVX_SET(mkc, mkc, translations_octword_size_crossing_target_mkey, 1);
 	DEVX_SET(mkc, mkc, log_entity_size, 12);
 	DEVX_SET64(mkc, mkc, start_addr, (intptr_t)buf); // virtual address
-	DEVX_SET64(mkc, mkc, len, buf_sz); // region address
+	DEVX_SET64(mkc, mkc, len, buf_sz);
 
 	out_mkey->mkey_obj = mlx5dv_devx_obj_create(pd->context, in, sizeof(in), out, sizeof(out));
 	if (!out_mkey->mkey_obj) {
