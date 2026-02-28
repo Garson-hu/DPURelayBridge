@@ -97,8 +97,7 @@ int main(int argc, char *argv[]) {
     // Step C: Receive Host memory metadata
     // -------------------------------------------------------------------
 
-    // HostMemInfo primary_info, mirror_info;
-    HostMemInfo primary_info;
+    HostMemInfo primary_info, mirror_info;
 
     ssize_t ret1 = recv(client_socket, &primary_info, sizeof(HostMemInfo), MSG_WAITALL);
     ssize_t ret2 = recv(client_socket, &mirror_info, sizeof(HostMemInfo), MSG_WAITALL);
