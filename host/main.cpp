@@ -155,14 +155,15 @@ int main(int argc, char *argv[]) {
     // ------------------------------------------------------------------------------ 
 
     SPDLOG_DEBUG("Allocating and signing Primary and Mirror buffers...");
-    void *primary_buf = nullptr;
-    void *mirror_buf  = nullptr;
     
     // Use page alignment to allocate memory, instead of malloc
-    void *primary_buf = malloc(BUF_SIZE);
-    void *mirror_buf = malloc(BUF_SIZE);
+    // void *primary_buf = nullptr;
+    // void *mirror_buf  = nullptr;
     // posix_memalign(&primary_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
     // posix_memalign(&mirror_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
+    
+    void *primary_buf = malloc(BUF_SIZE);
+    void *mirror_buf = malloc(BUF_SIZE);
 
     if (!primary_buf || !mirror_buf) {
         SPDLOG_ERROR("Failed to allocate aligned host memory.");
