@@ -20,15 +20,12 @@ extern "C" {
     #include "../common/cgmk_legacy/cross_gvmi_mkey.h"
 }
 
-// #define LOCAL_BUF_SIZE 24000 // 24KB
-#define LOCAL_BUF_SIZE 16 * 1024 * 1024 // 16MB
+#define LOCAL_BUF_SIZE 24000 // 24KB
+// #define LOCAL_BUF_SIZE 16 * 1024 * 1024 // 16MB
 
 # define IB_DEVNAME "mlx5_0"
 # define LISTEN_PORT 1234
 #define RQ_NUM_DESC 16
-
-// const char *ib_devname = "mlx5_0";
-// uint16_t listen_port = 1234;
 
 static inline uint32_t u32log2(uint32_t x) {
     if (x == 0) return 0;
@@ -182,7 +179,13 @@ int main(int argc, char *argv[]) {
     // Step A1: Register local memory
     // -----------------------------------------------------
     size_t local_buf_size = LOCAL_BUF_SIZE;
-    void *local_buf = calloc(1, local_buf_size);
+    void *local_buf =  (uint8_t*)calloc(1, local_buf_size);
+
+    if (!local_buf) {
+        SPDLOG_ERROR("Failed to allocate local buffer.");
+        exit(EXIT_FAILURE);
+    }
+
     struct ibv_mr *local_mr = ibv_reg_mr(pd, local_buf, local_buf_size, 
                                          IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
     if (!local_mr) {
