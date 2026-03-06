@@ -15,4 +15,4 @@ enum BufferType {
 struct HostMemInfo {
     char desc_str[256];
     BufferType type;         // Mark this is primary or mirror buffer
-};
+} __attribute__((packed));
