@@ -18,8 +18,8 @@ extern "C" {
     #include "../common/cgmk_legacy/cgmk_utils.h"
 }
 
-// #define BUF_SIZE 16 * 1024 * 1024;  
-#define BUF_SIZE 24000
+#define BUF_SIZE 16 * 1024 * 1024
+// #define BUF_SIZE 24000
 
 /* Command line input structure:
  * - dst_ip: the IP address of the DPU
