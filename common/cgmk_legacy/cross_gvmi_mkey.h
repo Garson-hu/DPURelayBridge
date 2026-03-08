@@ -230,7 +230,6 @@ cgmk_mr_export(
 }
 
 // ! helper 1: fill alias target
-// ! helper 1: fill alias access key and metadata
 // *This helper is intentionally compiled with O0.
 // *During debugging, I found that the program works in Debug mode,
 // *but fails once compiler optimization is enabled.
