@@ -229,6 +229,37 @@ cgmk_mr_export(
 	return serialize_desc_data(&out_data, out_mr_desc, out_mr_desc_sz);
 }
 
+// ! helper 1: fill alias target
+// ! helper 1: fill alias access key and metadata
+// *This helper is intentionally compiled with O0.
+// *During debugging, I found that the program works in Debug mode,
+// *but fails once compiler optimization is enabled.
+// *
+// *Further isolation showed that the issue is inside cgmk_mr_crossing_reg(),
+// *specifically in the small block that fills the alias context with:
+//   1. access_key
+//   2. metadata
+// *
+// *To narrow down the problem, I extracted these statements into a separate helper
+// and forced this helper to use O0 only. With this change, the program runs normally,
+// *which indicates that the optimization-sensitive behavior is likely triggered by this block of code or by the related DEVX field macros.
+// by this block of code or by the related DEVX field macros.
+// *
+// *This helper is kept as a debugging workaround so the suspicious code region
+// *can be isolated from the rest of cgmk_mr_crossing_reg().
+__attribute__((noinline,optimize("O0")))
+static void cgmk_fill_alias_key_meta(uint32_t *in,
+                                     const struct desc_data *mr_cr_data,
+                                     const struct mlx5dv_obj *pd_obj)
+{
+    void *alias_ctx = DEVX_ADDR_OF(create_alias_obj_in, in, alias_ctx);
+    void *access_key = DEVX_ADDR_OF(alias_context, alias_ctx, access_key);
+
+    memcpy(access_key, mr_cr_data->access_key, mr_cr_data->access_key_sz);
+    DEVX_SET(alias_context, alias_ctx, metadata, pd_obj->pd.out->pdn);
+}
+// ! End of helper 1
+
 /*
  * Remote crossing mkey builder, which uses DEVX alias object of mkey type
  * NOTE: you must call @dereg_cgmk_mr_crossing() to properly dereg crossing mkey object.
@@ -277,11 +308,16 @@ cgmk_mr_crossing_reg(struct ibv_pd *pd, char *crossing_mr_desc, size_t crossing_
 	DEVX_SET(general_obj_in_cmd_hdr, hdr, opcode, MLX5_CMD_OP_CREATE_GENERAL_OBJECT);
 	DEVX_SET(general_obj_in_cmd_hdr, hdr, obj_type, MLX5_GENERAL_OBJ_TYPE_MKEY);
 	DEVX_SET(general_obj_in_cmd_hdr, hdr, alias_object, 1);
+	
 	DEVX_SET(alias_context, alias_ctx, vhca_id_to_be_accessed, mr_cr_data.vhca_id);
 	DEVX_SET(alias_context, alias_ctx, object_id_to_be_accessed, mr_cr_data.mkey >> 8); // needs only 24 bits(mk idx), discard last 8 bits
-	void *access_key = DEVX_ADDR_OF(alias_context, alias_ctx, access_key);
-	memcpy(access_key, mr_cr_data.access_key, mr_cr_data.access_key_sz);
-	DEVX_SET(alias_context, alias_ctx, metadata, pd_obj->pd.out->pdn);
+	
+	// ! Problem starts here (O1 Optimization will fail)
+	// void *access_key = DEVX_ADDR_OF(alias_context, alias_ctx, access_key);
+	// memcpy(access_key, mr_cr_data.access_key, mr_cr_data.access_key_sz);
+	// DEVX_SET(alias_context, alias_ctx, metadata, pd_obj->pd.out->pdn);
+	cgmk_fill_alias_key_meta(in, &mr_cr_data, pd_obj);
+	// ! Problem ends here (O1 Optimization will fail)
 
 	alias = mlx5dv_devx_obj_create(pd->context, in, sizeof(in), out, sizeof(out));
 	if (!alias) {
