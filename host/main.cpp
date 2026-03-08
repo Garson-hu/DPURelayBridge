@@ -74,16 +74,21 @@ static int parse_command_line(int argc, char *argv[], struct cli_input *usr_par)
 void populate_mem_info(struct cgmk_mkey* mr, const char* token, BufferType type, HostMemInfo* out_info) {
     memset(out_info, 0, sizeof(HostMemInfo));
     out_info->type = type;
-    
-    // Write the exported string directly to the structure
-    size_t desc_len = cgmk_mr_export(mr, (char*)token, 32, out_info->desc_str, sizeof(out_info->desc_str));
 
-    SPDLOG_DEBUG("Raw MR Descriptor string: {}", out_info->desc_str);
+    size_t desc_len = cgmk_mr_export(mr, (char*)token, 32,
+                                     out_info->desc_str,
+                                     sizeof(out_info->desc_str));
 
-    if (desc_len == 0) {
-        SPDLOG_ERROR("Failed to export MR!");
+    if (desc_len == 0 || desc_len >= sizeof(out_info->desc_str)) {
+        SPDLOG_ERROR("Failed to export MR or descriptor too long!");
         exit(1);
     }
+
+    out_info->desc_str[desc_len] = '\0';
+    out_info->desc_str[sizeof(out_info->desc_str) - 1] = '\0';
+
+    SPDLOG_DEBUG("exported desc_len = {}", desc_len);
+    SPDLOG_DEBUG("Raw MR Descriptor string: {}", out_info->desc_str);
 }
 
 int main(int argc, char *argv[]) {
@@ -160,21 +165,26 @@ int main(int argc, char *argv[]) {
     SPDLOG_DEBUG("Allocating and signing Primary and Mirror buffers...");
     
     // Use page alignment to allocate memory, instead of malloc
-    // void *primary_buf = nullptr;
-    // void *mirror_buf  = nullptr;
-    // posix_memalign(&primary_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
-    // posix_memalign(&mirror_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
-    
-    void *primary_buf = malloc(BUF_SIZE);
-    void *mirror_buf = malloc(BUF_SIZE);
+    void *primary_buf = nullptr;
+    void *mirror_buf  = nullptr;
+    int rc1 = posix_memalign(&primary_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
+    int rc2 = posix_memalign(&mirror_buf, sysconf(_SC_PAGESIZE), BUF_SIZE);
 
-    int retp = sign_buffer(primary_buf, BUF_SIZE);
-    int retm = sign_buffer(mirror_buf, BUF_SIZE);
-
-    if (retp != 0 || retm != 0) {
-        SPDLOG_ERROR("Failed to sign buffers.");
+    if (rc1 != 0 || rc2 != 0 || !primary_buf || !mirror_buf) {
+        SPDLOG_ERROR("posix_memalign failed!");
         exit(EXIT_FAILURE);
     }
+
+    // void *primary_buf = malloc(BUF_SIZE);
+    // void *mirror_buf = malloc(BUF_SIZE);
+
+    // int retp = sign_buffer(primary_buf, BUF_SIZE);
+    // int retm = sign_buffer(mirror_buf, BUF_SIZE);
+
+    // if (retp != 0 || retm != 0) {
+    //     SPDLOG_ERROR("Failed to sign buffers.");
+    //     exit(EXIT_FAILURE);
+    // }
 
     // ------------------------------------------------------------------------------
     // Step C: Register the underlying Cross-GVMI MKey for each of these two memory buffers
@@ -215,7 +225,7 @@ int main(int argc, char *argv[]) {
     SPDLOG_DEBUG("Connecting to local DPU via TCP...");
 
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    struct sockaddr_in r_addr;
+    struct sockaddr_in r_addr = {};
     r_addr.sin_family = AF_INET;
     r_addr.sin_port = htons(usr_par.dst_port);
     r_addr.sin_addr.s_addr = inet_addr(usr_par.dst_ip);

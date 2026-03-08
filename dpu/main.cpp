@@ -140,7 +140,7 @@ static int modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *qp_attr, struct mlx5
 // ---------------------------------
 int main(int argc, char *argv[]) {
 
-    // init_logger();
+    init_logger();
     // The device we use is mlx5_0 (e.g. represent the external InfiniBand/Ethernet port)
     
     SPDLOG_INFO("============================================");
@@ -351,6 +351,9 @@ int main(int argc, char *argv[]) {
         SPDLOG_ERROR("Failed to receive full HostMemInfo structures.");
         exit(EXIT_FAILURE);
     }
+
+    primary_info.desc_str[sizeof(primary_info.desc_str) - 1] = '\0';
+    mirror_info.desc_str[sizeof(mirror_info.desc_str) - 1] = '\0';
 
     SPDLOG_INFO("sizeof(desc_str) = {}", strlen(primary_info.desc_str));
     SPDLOG_INFO("desc_str = {}", primary_info.desc_str);
