@@ -2,6 +2,7 @@
 #include "rdma_utils.h"
 #include <errno.h>
 #include <string.h>
+#include <random>
 
 extern "C" {
     #include "cgmk_legacy/devx_prm.h"
@@ -14,7 +15,7 @@ uint32_t u32log2(uint32_t x) {
     return 31u - __builtin_clz(x);
 }
 
-static uint32_t generate_psn() {
+uint32_t generate_psn() {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<uint32_t> dist(0, 0xFFFFFF);
