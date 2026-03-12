@@ -353,10 +353,10 @@ int main(int argc, char *argv[]) {
     my_info.vaddr = (uint64_t)inbound_buf;
     
     SPDLOG_INFO("Generated Network Credentials:");
-    SPDLOG_INFO("  Network QPN : {}", my_info.qp_num);
-    SPDLOG_INFO("  LID         : {}", my_info.lid);
-    SPDLOG_INFO("  Inbound Addr: 0x{:x}", my_info.vaddr);
-    SPDLOG_INFO("  Inbound Key : {}", my_info.rkey);
+    SPDLOG_INFO("  Network QPN : {}", (uint32_t)my_info.qp_num);
+    SPDLOG_INFO("  LID         : {}", (uint16_t)my_info.lid);
+    SPDLOG_INFO("  Inbound Addr: 0x{:x}", (uint64_t)my_info.vaddr);
+    SPDLOG_INFO("  Inbound Key : {}", (uint32_t)my_info.rkey);
 
     // -------------------------------------------------------------------
     // Step H: Exchange OOB Info with Local Host
@@ -376,11 +376,11 @@ int main(int argc, char *argv[]) {
     }
 
     SPDLOG_INFO("Received Remote Credentials:");
-    SPDLOG_INFO("  Remote QPN : {}", remote_info.qp_num);
-    SPDLOG_INFO("  Remote LID : {}", remote_info.lid);
-    SPDLOG_INFO("  Remote PSN : {}", remote_info.psn);
-    SPDLOG_INFO("  Remote Addr: 0x{:x}", remote_info.vaddr);
-    SPDLOG_INFO("  Remote Key : {}", remote_info.rkey);
+    SPDLOG_INFO("  Remote QPN : {}", (uint32_t)remote_info.qp_num);
+    SPDLOG_INFO("  Remote LID : {}", (uint16_t)remote_info.lid);
+    SPDLOG_INFO("  Remote PSN : {}", (uint32_t)remote_info.psn);
+    SPDLOG_INFO("  Remote Addr: 0x{:x}", (uint64_t)remote_info.vaddr);
+    SPDLOG_INFO("  Remote Key : {}", (uint32_t)remote_info.rkey);
 
     // -------------------------------------------------------------------
     // Step I: Bring up Network QP (INIT -> RTR -> RTS)
