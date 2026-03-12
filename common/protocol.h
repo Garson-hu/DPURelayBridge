@@ -22,6 +22,7 @@ struct DpuRdmaInfo {
     uint32_t qp_num;     // Network RC QP number, unique for each DPU
     uint16_t lid;        // Local Identifier
     uint8_t  gid[16];    // Global Identifier (RoCEv2)
+    uint32_t psn;        // Packet Sequence Number (RC connection needs this)
     uint32_t rkey;       // RKey of the remote DPU's ring_buf
     uint64_t vaddr;      // Start address of the remote DPU's ring_buf
 } __attribute__((packed));

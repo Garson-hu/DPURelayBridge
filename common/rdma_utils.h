@@ -23,6 +23,11 @@ int qp_enable_mmo(struct ibv_qp *qp);
 // Unified wrapper for QP state transitions
 int modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *qp_attr, struct mlx5dv_ah *dv_ah, int attr_mask);
 
+// Standard Verbs QP State Machine for Network RC QP (QP2)
+int modify_rc_qp_to_init(struct ibv_qp *qp, int ib_port);
+int modify_rc_qp_to_rtr(struct ibv_qp *qp, uint32_t remote_qpn, uint16_t remote_lid, uint8_t *remote_gid, uint32_t remote_psn, int ib_port);
+int modify_rc_qp_to_rts(struct ibv_qp *qp, uint32_t local_psn);
+
 #ifdef __cplusplus
 }
 #endif

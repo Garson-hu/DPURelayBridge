@@ -120,3 +120,74 @@ int modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *qp_attr, struct mlx5dv_ah *
         default:           return -EINVAL;
     }
 }
+
+
+// -------------------------------------------------------------------------
+// Standard Verbs QP State Machine for Network RC QP (QP2)
+// -------------------------------------------------------------------------
+
+// Transition standard RC QP to INIT
+int modify_rc_qp_to_init(struct ibv_qp *qp, int ib_port) {
+    struct ibv_qp_attr attr = {};
+    attr.qp_state        = IBV_QPS_INIT;
+    attr.pkey_index      = 0;
+    attr.port_num        = ib_port;
+    attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+
+    int flags = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS;
+    return ibv_modify_qp(qp, &attr, flags);
+}
+
+// Transition standard RC QP to RTR
+int modify_rc_qp_to_rtr(struct ibv_qp *qp, uint32_t remote_qpn, uint16_t remote_lid, uint8_t *remote_gid, uint32_t remote_psn, int ib_port) {
+    struct ibv_qp_attr attr = {};
+    attr.qp_state           = IBV_QPS_RTR;
+    attr.path_mtu           = IBV_MTU_1024;
+    attr.dest_qp_num        = remote_qpn;
+    attr.rq_psn             = remote_psn;
+    attr.max_dest_rd_atomic = 1;
+    attr.min_rnr_timer      = 12;
+
+    attr.ah_attr.is_global  = 0;
+    attr.ah_attr.dlid       = remote_lid;
+    attr.ah_attr.sl         = 0;
+    attr.ah_attr.src_path_bits = 0;
+    attr.ah_attr.port_num   = ib_port;
+
+    // If using RoCE (GID is not all zeros), enable global routing
+    bool use_grh = false;
+    for (int i = 0; i < 16; i++) {
+        if (remote_gid[i] != 0) {
+            use_grh = true;
+            break;
+        }
+    }
+
+    if (use_grh) {
+        attr.ah_attr.is_global = 1;
+        memcpy(attr.ah_attr.grh.dgid.raw, remote_gid, 16);
+        attr.ah_attr.grh.flow_label = 0;
+        attr.ah_attr.grh.sgid_index = 0;
+        attr.ah_attr.grh.hop_limit  = 1;
+        attr.ah_attr.grh.traffic_class = 0;
+    }
+
+    int flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN | 
+                IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER;
+    return ibv_modify_qp(qp, &attr, flags);
+}
+
+// Transition standard RC QP to RTS
+int modify_rc_qp_to_rts(struct ibv_qp *qp, uint32_t local_psn) {
+    struct ibv_qp_attr attr = {};
+    attr.qp_state      = IBV_QPS_RTS;
+    attr.timeout       = 14;
+    attr.retry_cnt     = 7;
+    attr.rnr_retry     = 7;
+    attr.sq_psn        = local_psn;
+    attr.max_rd_atomic = 1;
+
+    int flags = IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | 
+                IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC;
+    return ibv_modify_qp(qp, &attr, flags);
+}
