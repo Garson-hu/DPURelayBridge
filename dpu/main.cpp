@@ -382,7 +382,7 @@ int main(int argc, char *argv[]) {
     SPDLOG_INFO("  Remote Addr: 0x{:x}", remote_info.vaddr);
     SPDLOG_INFO("  Remote Key : {}", remote_info.rkey);
 
-    / -------------------------------------------------------------------
+    // -------------------------------------------------------------------
     // Step I: Bring up Network QP (INIT -> RTR -> RTS)
     // -------------------------------------------------------------------
     SPDLOG_DEBUG("Transitioning Network QP to RTS state...");
