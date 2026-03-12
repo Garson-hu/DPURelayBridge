@@ -25,11 +25,19 @@ extern "C" {
  * - dst_ip: the IP address of the DPU
  * - ib_devname: the name of the IB device
  * - dst_port: the port of the DPU
+ * - is_server: True if this Host acts as TCP server for OOB
+ * - remote_host_ip: Remote Host IP (needed if is_server == false)
+ * - remote_host_port: Port for Host-to-Host communication
  */
 struct cli_input {
     char *dst_ip;
     char *ib_devname;
     uint16_t dst_port;
+
+    // * Fields for Host-to-Host OOB exchange
+    bool is_server;         
+    char *remote_host_ip;   
+    uint16_t remote_host_port; 
 };
 
 // -------------------------------------------------------------------
@@ -37,11 +45,15 @@ struct cli_input {
 // -------------------------------------------------------------------
 static void usage(const char *argv0) {
     std::cout << "Usage:\n";
-    std::cout << "  Host Agent prepares GVMI MKeys and shares them with local DPU.\n\n";
+    std::cout << "  Host Agent prepares GVMI MKeys and handles OOB exchange.\n\n";
     std::cout << "Options:\n";
-    std::cout << "  -a, --dst-ip-address=<192.168.100.2> (DPU Arm IP)\n";
-    std::cout << "  -d, --device=<mlx5_2>                (Host IB Device)\n";
-    std::cout << "  -p, --dst-port=<1234>                (DPU Port)\n";
+    std::cout << "  -a, --dst-ip-address=<192.168.100.2> (Local DPU Arm IP)\n";
+    std::cout << "  -d, --device=<mlx5_2>                (Local Host IB Device)\n";
+    std::cout << "  -p, --dst-port=<1234>                (Local DPU Port)\n";
+    std::cout << "  -s, --server                         (Run Host as OOB Server)\n";
+    std::cout << "  -c, --client                         (Run Host as OOB Client)\n";
+    std::cout << "  -R, --remote-host-ip=<IP>            (Remote Host IP, required for client)\n";
+    std::cout << "  -P, --remote-host-port=<9999>        (Remote Host Port for OOB)\n";
 }
 
 static int parse_command_line(int argc, char *argv[], struct cli_input *usr_par) {
@@ -50,20 +62,30 @@ static int parse_command_line(int argc, char *argv[], struct cli_input *usr_par)
         return 1;
     }
     memset(usr_par, 0, sizeof(*usr_par));
+    usr_par->remote_host_port = 9999; // Default Host-to-Host port
+    
     while (1) {
         int c;
         static struct option long_options[] = {
-            { "dst-ip-address", required_argument, 0, 'a' },
-            { "device",         required_argument, 0, 'd' },
-            { "dst-port",       required_argument, 0, 'p' },
+            { "dst-ip-address",   required_argument, 0, 'a' },
+            { "device",           required_argument, 0, 'd' },
+            { "dst-port",         required_argument, 0, 'p' },
+            { "server",           no_argument,       0, 's' },
+            { "client",           no_argument,       0, 'c' },
+            { "remote-host-ip",   required_argument, 0, 'R' },
+            { "remote-host-port", required_argument, 0, 'P' },
             { 0, 0, 0, 0 }
         };
-        c = getopt_long(argc, argv, "a:d:p:", long_options, NULL);
+        c = getopt_long(argc, argv, "a:d:p:scR:P:", long_options, NULL);
         if (c == -1) break;
         switch (c) {
             case 'a': usr_par->dst_ip = optarg; break;
             case 'd': usr_par->ib_devname = optarg; break;
             case 'p': usr_par->dst_port = strtoul(optarg, NULL, 0); break;
+            case 's': usr_par->is_server = true; break;
+            case 'c': usr_par->is_server = false; break;
+            case 'R': usr_par->remote_host_ip = optarg; break;
+            case 'P': usr_par->remote_host_port = strtoul(optarg, NULL, 0); break;
             default: usage(argv[0]); return 1;
         }
     }
@@ -157,7 +179,6 @@ int main(int argc, char *argv[]) {
 
     SPDLOG_INFO("InfiniBand device and PD initialized successfully.");
     
-
     // ------------------------------------------------------------------------------
     // Step B: Allocate memory and execute signature (Reuse the logic of cgmk/mk_sender.c)
     // ------------------------------------------------------------------------------ 
@@ -251,21 +272,106 @@ int main(int argc, char *argv[]) {
     SPDLOG_INFO("Memory credentials successfully handed over to the DPU!");
 
     // ---------------------------------------------------------
-    // Step F: Suspend and wait for the DPU's release signal (ACK)
+    // Step F: Receive ACK from local DPU
     // ---------------------------------------------------------
-    // Host CPU will go to sleep and no data copy will be performed.
-
-    char ackmsg[256];
-    ssize_t recv_bytes = recv(sockfd, ackmsg, sizeof(ackmsg), 0);
+    char ackmsg[3] = {0};
+    ssize_t recv_bytes = recv(sockfd, ackmsg, 2, MSG_WAITALL); // Expecting "OK"
     
     if (recv_bytes <= 0) {
-        SPDLOG_WARN("DPU closed the connection or error occurred. Host Agent shutting down.");
-    } else {
-        SPDLOG_INFO("Received completion signal from DPU. Shutting down cleanly.");
+        SPDLOG_ERROR("DPU closed connection unexpectedly.");
+        exit(EXIT_FAILURE);
     }
+    SPDLOG_INFO("Received completion signal from DPU: {}", ackmsg);
 
     // ---------------------------------------------------------
-    // Step G: release resources
+    // Step G: Receive Network Credentials from local DPU
+    // ---------------------------------------------------------
+    SPDLOG_DEBUG("Waiting for Local DPU Network Credentials...");
+    DpuRdmaInfo local_dpu_info = {};
+    
+    if (recv(sockfd, &local_dpu_info, sizeof(DpuRdmaInfo), MSG_WAITALL) != sizeof(DpuRdmaInfo)) {
+        SPDLOG_ERROR("Failed to receive DpuRdmaInfo from local DPU.");
+        exit(EXIT_FAILURE);
+    }
+    
+    SPDLOG_INFO("Successfully received credentials from Local DPU (QPN: {})", local_dpu_info.qp_num);
+
+    // ---------------------------------------------------------
+    // Step H: Host-to-Host Out-of-Band Exchange
+    // ---------------------------------------------------------
+    SPDLOG_INFO("Starting Host-to-Host OOB exchange on port {}...", usr_par.remote_host_port);
+    DpuRdmaInfo remote_dpu_info = {};
+    
+    int host_sock = socket(AF_INET, SOCK_STREAM, 0);
+    int opt = 1;
+    setsockopt(host_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    
+    if (usr_par.is_server) {
+        // Run as Server: Wait for Remote Host to connect
+        struct sockaddr_in serv_addr = {};
+        serv_addr.sin_family = AF_INET;
+        serv_addr.sin_addr.s_addr = INADDR_ANY;
+        serv_addr.sin_port = htons(usr_par.remote_host_port);
+        
+        bind(host_sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+        listen(host_sock, 1);
+        SPDLOG_INFO("Host is running as SERVER. Waiting for remote Host...");
+        
+        int conn_sock = accept(host_sock, NULL, NULL);
+        if (conn_sock < 0) {
+            SPDLOG_ERROR("Host Server accept failed.");
+            exit(EXIT_FAILURE);
+        }
+        
+        // Server: Recv then Send
+        recv(conn_sock, &remote_dpu_info, sizeof(DpuRdmaInfo), MSG_WAITALL);
+        send(conn_sock, &local_dpu_info, sizeof(DpuRdmaInfo), 0);
+        close(conn_sock);
+        
+    } else {
+        // Run as Client: Connect to Remote Host
+        struct sockaddr_in serv_addr = {};
+        serv_addr.sin_family = AF_INET;
+        serv_addr.sin_port = htons(usr_par.remote_host_port);
+        inet_pton(AF_INET, usr_par.remote_host_ip, &serv_addr.sin_addr);
+        
+        SPDLOG_INFO("Host is running as CLIENT. Connecting to remote Host {}...", usr_par.remote_host_ip);
+        
+        // Basic retry loop for client connection
+        while (connect(host_sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+            SPDLOG_WARN("Waiting for remote Host server to be ready...");
+            sleep(1);
+        }
+        
+        // Client: Send then Recv
+        send(host_sock, &local_dpu_info, sizeof(DpuRdmaInfo), 0);
+        recv(host_sock, &remote_dpu_info, sizeof(DpuRdmaInfo), MSG_WAITALL);
+    }
+    close(host_sock);
+    
+    SPDLOG_INFO("Host-to-Host Exchange Complete! Received remote DPU credentials (QPN: {}).", remote_dpu_info.qp_num);
+
+    // ---------------------------------------------------------
+    // Step I: Send Remote DPU Credentials down to Local DPU
+    // ---------------------------------------------------------
+    SPDLOG_DEBUG("Forwarding remote credentials to local DPU...");
+    
+    if (send(sockfd, &remote_dpu_info, sizeof(DpuRdmaInfo), 0) != sizeof(DpuRdmaInfo)) {
+        SPDLOG_ERROR("Failed to send remote DPU credentials to local DPU.");
+        exit(EXIT_FAILURE);
+    }
+    
+    SPDLOG_INFO("Remote credentials forwarded. DPU highway is fully established!");
+
+    // NOTE: For Phase 4 (Actual data transfer), we will keep `sockfd` open to send the "START" trigger.
+    // But for now, we will hold the connection so the DPU program doesn't crash on socket close.
+    SPDLOG_INFO("Host Agent is now going to sleep.");
+    while(1) {
+        sleep(100);
+    }
+    
+    // ---------------------------------------------------------
+    // Release resources
     // ---------------------------------------------------------
     close(sockfd);
     dereg_cgmk_mkey(primary_mr);
