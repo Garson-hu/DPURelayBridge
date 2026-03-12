@@ -21,12 +21,11 @@ extern "C" {
     #include "../common/rdma_utils.h"
 }
 
-#define LOCAL_BUF_SIZE 24000 // 24KB
-// #define LOCAL_BUF_SIZE 16 * 1024 * 1024 // 16MB
+#define RING_BUF_SIZE 16 * 1024 * 1024 // 16MB
 
-# define IB_DEVNAME "mlx5_0"
-# define LISTEN_PORT 1234
-# define RQ_NUM_DESC 16
+#define IB_DEVNAME "mlx5_0"
+#define LISTEN_PORT 1234
+#define RQ_NUM_DESC 16
 
 // ---------------------------------
 // DPU receiver main function
@@ -71,22 +70,37 @@ int main(int argc, char *argv[]) {
     // -----------------------------------------------------
     // Step A1: Register local memory
     // -----------------------------------------------------
-    size_t local_buf_size = LOCAL_BUF_SIZE;
-    void *local_buf =  (uint8_t*)calloc(1, local_buf_size);
+    SPDLOG_DEBUG("Allocating and registering DPU local ring buffer...");
+    
+    // Set buffer size to 16MB for payload relay
+    size_t ring_buf_size = RING_BUF_SIZE;
 
-    if (!local_buf) {
-        SPDLOG_ERROR("Failed to allocate local buffer.");
+    void *outbound_buf = nullptr; // Data from Host. Buffer for sending data to remote DPU
+    void *inbound_buf = nullptr; // Data from remote DPU. Buffer for receiving data from remote DPU
+
+    // Allocate page-aligned memory for both directions
+    if (posix_memalign(&outbound_buf, sysconf(_SC_PAGESIZE), ring_buf_size) != 0 ||
+        posix_memalign(&inbound_buf, sysconf(_SC_PAGESIZE), ring_buf_size) != 0) {
+        SPDLOG_ERROR("Failed to allocate outbound/inbound buffers.");
         exit(EXIT_FAILURE);
     }
 
-    struct ibv_mr *local_mr = ibv_reg_mr(pd, local_buf, local_buf_size, 
-                                         IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
-    if (!local_mr) {
-        SPDLOG_ERROR("Failed to register local MR.");
+    memset(outbound_buf, 0, ring_buf_size);
+    memset(inbound_buf, 0, ring_buf_size);
+
+    // Register Memory Regions (MRs) with full access permissions
+    int access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+
+
+    struct ibv_mr *outbound_mr = ibv_reg_mr(pd, outbound_buf, ring_buf_size, access_flags);
+    struct ibv_mr *inbound_mr = ibv_reg_mr(pd, inbound_buf, ring_buf_size, access_flags);
+
+    if (!outbound_mr || !inbound_mr) {
+        SPDLOG_ERROR("Failed to register MRs for ring buffers.");
         exit(EXIT_FAILURE);
     }
     
-    SPDLOG_DEBUG("PD allocated successfully.");
+    SPDLOG_INFO("Outbound and Inbound ring buffers registered successfully. Size: {} bytes", RING_BUF_SIZE);
 
     // -----------------------------------------------------
     // Step A2: Init DCI QP and Enable MMO 
@@ -289,8 +303,12 @@ int main(int argc, char *argv[]) {
 
     if (qp) ibv_destroy_qp(qp);
     if (cq_ex) ibv_destroy_cq(ibv_cq_ex_to_cq(cq_ex));
-    if (local_mr) ibv_dereg_mr(local_mr);
-    if (local_buf) free(local_buf);
+    
+    if (outbound_mr) ibv_dereg_mr(outbound_mr);
+    if (inbound_mr) ibv_dereg_mr(inbound_mr);
+
+    if (outbound_buf) free(outbound_buf);
+    if (inbound_buf) free(inbound_buf);
     
     ibv_dealloc_pd(pd);
     ibv_close_device(context);
