@@ -294,8 +294,8 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     
-    SPDLOG_INFO("Successfully received credentials from Local DPU (QPN: {})", local_dpu_info.qp_num);
-
+    SPDLOG_INFO("Successfully received credentials from Local DPU (QPN: {})", (uint32_t)local_dpu_info.qp_num);
+    
     // ---------------------------------------------------------
     // Step H: Host-to-Host Out-of-Band Exchange
     // ---------------------------------------------------------
@@ -349,7 +349,7 @@ int main(int argc, char *argv[]) {
     }
     close(host_sock);
     
-    SPDLOG_INFO("Host-to-Host Exchange Complete! Received remote DPU credentials (QPN: {}).", remote_dpu_info.qp_num);
+    SPDLOG_INFO("Host-to-Host Exchange Complete! Received remote DPU credentials (QPN: {}).", (uint32_t)remote_dpu_info.qp_num);
 
     // ---------------------------------------------------------
     // Step I: Send Remote DPU Credentials down to Local DPU
