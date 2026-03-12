@@ -14,6 +14,13 @@ uint32_t u32log2(uint32_t x) {
     return 31u - __builtin_clz(x);
 }
 
+static uint32_t generate_psn() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<uint32_t> dist(0, 0xFFFFFF);
+    return dist(gen);
+}
+
 // Transition QP to INIT state
 int modify_qp_to_init(struct ibv_qp *qp, struct ibv_qp_attr *qp_attr, int attr_mask) {
     uint8_t in[DEVX_ST_SZ_BYTES(rst2init_qp_in)] = {0};

@@ -174,7 +174,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    // 4. Enable MMO (Memory Management Offload) - 核心跨域依赖
+    // 4. Enable MMO (Memory Management Offload) - Core cross-domain dependency
     ret_qp = qp_enable_mmo(qp);
     if (ret_qp) {
         SPDLOG_ERROR("Can't enable MMO. err={}", ret_qp);
@@ -247,7 +247,6 @@ int main(int argc, char *argv[]) {
     // -------------------------------------------------------------------
     // Step C: Receive Host memory metadata
     // -------------------------------------------------------------------
-
     HostMemInfo primary_info;
     HostMemInfo mirror_info;
 
@@ -292,11 +291,119 @@ int main(int argc, char *argv[]) {
     SPDLOG_INFO("Alias setup complete. Releasing Host Agent...");
     const char* ack = "OK";
     send(client_socket, ack, strlen(ack), 0);
-    close(client_socket);
-    close(server_fd);
 
     SPDLOG_INFO("Host CPU is now completely offloaded. DPU is holding the keys.");
 
+    // -------------------------------------------------------------------
+    // Step F: Create Network RC QP for DPU-to-DPU communication
+    // Before is the local DPU to local Host communication
+    // -------------------------------------------------------------------
+    
+    SPDLOG_DEBUG("Creating Network RC QP for cross-machine communication...");
+
+    // Create a standard RC QP (No MMO needed here)
+    struct ibv_qp_init_attr net_qp_init_attr = {};
+    net_qp_init_attr.send_cq = ibv_cq_ex_to_cq(cq_ex); // Shared CQ is fine for now
+    net_qp_init_attr.recv_cq = ibv_cq_ex_to_cq(cq_ex);
+    net_qp_init_attr.cap.max_send_wr = 16;
+    net_qp_init_attr.cap.max_recv_wr = 16;
+    net_qp_init_attr.cap.max_send_sge = 1;
+    net_qp_init_attr.cap.max_recv_sge = 1;
+    net_qp_init_attr.qp_type = IBV_QPT_RC;
+    // Standard send ops
+    net_qp_init_attr.sq_sig_all = 1;
+
+    struct ibv_qp *network_qp = ibv_create_qp(pd, &net_qp_init_attr);
+    if (!network_qp) {
+        SPDLOG_ERROR("Failed to create Network QP. Errno: {}", errno);
+        exit(EXIT_FAILURE);
+    }
+
+    // -------------------------------------------------------------------
+    // Step G: Query Port Attributes and Generate DPU RDMA Info (Namecard)
+    // -------------------------------------------------------------------
+    SPDLOG_DEBUG("Querying port attributes to generate network credentials...");
+
+    struct ibv_port_attr port_attr = {};
+    int ib_port = 1; // Default IB port
+    
+    if (ibv_query_port(context, ib_port, &port_attr)) {
+        SPDLOG_ERROR("Failed to query IB port attributes.");
+        exit(EXIT_FAILURE);
+    }
+
+    DpuRdmaInfo my_info = {};
+    my_info.qp_num = network_qp->qp_num;
+    my_info.lid    = port_attr.lid;
+
+    // Query GID index 0 (Assuming IPv4/IPv6 RoCE or IB is configured)
+    union ibv_gid my_gid;
+
+    if (ibv_query_gid(context, ib_port, 0, &my_gid)) {
+        SPDLOG_WARN("Failed to query GID, GID will be zeroed out. (Safe for pure IB)");
+        memset(my_info.gid, 0, 16);
+    } else {
+        memcpy(my_info.gid, my_gid.raw, 16);
+    }
+
+    my_info.psn = generate_psn(); // Generate a random PSN for the RC connection
+
+    // Expose the INBOUND buffer to the remote DPU
+    my_info.rkey  = inbound_mr->lkey;  // Use lkey as rkey since we own it
+    my_info.vaddr = (uint64_t)inbound_buf;
+    
+    SPDLOG_INFO("Generated Network Credentials:");
+    SPDLOG_INFO("  Network QPN : {}", my_info.qp_num);
+    SPDLOG_INFO("  LID         : {}", my_info.lid);
+    SPDLOG_INFO("  Inbound Addr: 0x{:x}", my_info.vaddr);
+    SPDLOG_INFO("  Inbound Key : {}", my_info.rkey);
+
+    // -------------------------------------------------------------------
+    // Step H: Exchange OOB Info with Local Host
+    // -------------------------------------------------------------------
+    SPDLOG_DEBUG("Sending local network credentials to Host...");
+    if (send(client_socket, &my_info, sizeof(DpuRdmaInfo), 0) != sizeof(DpuRdmaInfo)) {
+        SPDLOG_ERROR("Failed to send local DpuRdmaInfo to Host");
+        exit(EXIT_FAILURE);
+    }
+
+    SPDLOG_INFO("Credentials sent. Waiting for remote DPU credentials from Host...");
+    
+    DpuRdmaInfo remote_info = {};
+    if (recv(client_socket, &remote_info, sizeof(DpuRdmaInfo), MSG_WAITALL) != sizeof(DpuRdmaInfo)) {
+        SPDLOG_ERROR("Failed to receive remote DpuRdmaInfo from Host");
+        exit(EXIT_FAILURE);
+    }
+
+    SPDLOG_INFO("Received Remote Credentials:");
+    SPDLOG_INFO("  Remote QPN : {}", remote_info.qp_num);
+    SPDLOG_INFO("  Remote LID : {}", remote_info.lid);
+    SPDLOG_INFO("  Remote PSN : {}", remote_info.psn);
+    SPDLOG_INFO("  Remote Addr: 0x{:x}", remote_info.vaddr);
+    SPDLOG_INFO("  Remote Key : {}", remote_info.rkey);
+
+    / -------------------------------------------------------------------
+    // Step I: Bring up Network QP (INIT -> RTR -> RTS)
+    // -------------------------------------------------------------------
+    SPDLOG_DEBUG("Transitioning Network QP to RTS state...");
+
+    if (modify_rc_qp_to_init(network_qp, ib_port)) {
+        SPDLOG_ERROR("Failed to move Network QP to INIT");
+        exit(EXIT_FAILURE);
+    }
+
+    if (modify_rc_qp_to_rtr(network_qp, remote_info.qp_num, remote_info.lid, remote_info.gid, remote_info.psn, ib_port)) {
+        SPDLOG_ERROR("Failed to move Network QP to RTR");
+        exit(EXIT_FAILURE);
+    }
+
+    if (modify_rc_qp_to_rts(network_qp, my_info.psn)) {
+        SPDLOG_ERROR("Failed to move Network QP to RTS");
+        exit(EXIT_FAILURE);
+    }
+
+    SPDLOG_INFO("Network QP is now in RTS state.");
+    
     // Clean up resources (will keep until the program ends in actual application)
     dereg_cgmk_mr_crossing(primary_alias);
     dereg_cgmk_mr_crossing(mirror_alias);

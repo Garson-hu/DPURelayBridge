@@ -12,6 +12,9 @@ extern "C" {
 // Helper to calculate log base 2 (used for atomic configurations)
 uint32_t u32log2(uint32_t x);
 
+// Generate a random PSN
+uint32_t generate_psn();
+
 // QP state machine transition functions
 int modify_qp_to_init(struct ibv_qp *qp, struct ibv_qp_attr *qp_attr, int attr_mask);
 int modify_qp_to_rtr(struct ibv_qp *qp, struct ibv_qp_attr *qp_attr, struct mlx5dv_ah *dv_ah, int attr_mask);
