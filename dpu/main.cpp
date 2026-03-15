@@ -24,7 +24,7 @@ extern "C" {
 #define RING_BUF_SIZE 16 * 1024 * 1024 // 16MB
 
 #define IB_DEVNAME "mlx5_0"
-#define LISTEN_PORT 1234
+#define LISTEN_PORT 12345
 #define RQ_NUM_DESC 16
 
 // ---------------------------------
