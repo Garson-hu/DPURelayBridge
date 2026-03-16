@@ -183,7 +183,7 @@ int main(int argc, char *argv[]) {
     // Step B: Allocate memory and execute signature (Reuse the logic of cgmk/mk_sender.c)
     // ------------------------------------------------------------------------------ 
 
-    SPDLOG_DEBUG("Allocating and signing Primary and Mirror buffers...");
+    SPDLOG_DEBUG("Allocating Primary and Mirror buffers...");
     
     // Use page alignment to allocate memory, instead of malloc
     void *primary_buf = nullptr;
