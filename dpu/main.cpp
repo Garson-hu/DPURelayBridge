@@ -159,45 +159,60 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    // 3. Modify QP to INIT state
+    // Query port attributes early (needed for MMO QP loopback RTR setup)
+    struct ibv_port_attr port_attr = {};
+    int ib_port = 1;
+    if (ibv_query_port(context, ib_port, &port_attr)) {
+        SPDLOG_ERROR("Failed to query IB port attributes.");
+        exit(EXIT_FAILURE);
+    }
+
+    // 3. Modify QP to INIT state (use standard ibv_modify_qp to sync verbs internal state)
     struct ibv_qp_attr qp_attr = {};
     qp_attr.qp_state = IBV_QPS_INIT;
     qp_attr.pkey_index = 0;
-    qp_attr.port_num = 1;
+    qp_attr.port_num = ib_port;
     qp_attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE |
                               IBV_ACCESS_REMOTE_WRITE |
                               IBV_ACCESS_REMOTE_READ;
     
-    int attr_mask = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS;
-    int ret_qp = modify_qp(qp, &qp_attr, NULL, attr_mask);
+    int ret_qp = ibv_modify_qp(qp, &qp_attr,
+        IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS);
     if (ret_qp) {
         SPDLOG_ERROR("Couldn't modify QP to INIT (errno={})", errno);
         exit(EXIT_FAILURE);
     }
 
-    // 4. Enable MMO (Memory Management Offload) - Core cross-domain dependency
+    // 4. Enable MMO (Memory Management Offload) via DevX - no standard verbs API for this
     ret_qp = qp_enable_mmo(qp);
     if (ret_qp) {
         SPDLOG_ERROR("Can't enable MMO. err={}", ret_qp);
         exit(EXIT_FAILURE);
     }
 
-    // 5. Modify QP to RTR
+    // 5. Modify QP to RTR (use ibv_modify_qp; loopback to self since MMO is local-only)
     memset(&qp_attr, 0, sizeof(qp_attr));
     qp_attr.qp_state = IBV_QPS_RTR;
     qp_attr.path_mtu = IBV_MTU_1024;
+    qp_attr.dest_qp_num = qp->qp_num;
+    qp_attr.rq_psn = 0;
+    qp_attr.max_dest_rd_atomic = 1;
+    qp_attr.min_rnr_timer = 12;
     qp_attr.ah_attr.is_global = 0;
+    qp_attr.ah_attr.dlid = port_attr.lid;
+    qp_attr.ah_attr.sl = 0;
     qp_attr.ah_attr.src_path_bits = 0;
-    qp_attr.ah_attr.port_num = 1;
-    attr_mask = IBV_QP_STATE | IBV_QP_PATH_MTU | IBV_QP_AV;
-    
-    ret_qp = modify_qp(qp, &qp_attr, NULL, attr_mask);
+    qp_attr.ah_attr.port_num = ib_port;
+
+    ret_qp = ibv_modify_qp(qp, &qp_attr,
+        IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN |
+        IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER);
     if (ret_qp) {
         SPDLOG_ERROR("Couldn't modify QP to RTR (errno={})", errno);
         exit(EXIT_FAILURE);
     }
 
-    // 6. Modify QP to RTS
+    // 6. Modify QP to RTS (use ibv_modify_qp)
     memset(&qp_attr, 0, sizeof(qp_attr));
     qp_attr.qp_state = IBV_QPS_RTS;
     qp_attr.timeout = 12;
@@ -205,10 +220,10 @@ int main(int argc, char *argv[]) {
     qp_attr.rnr_retry = 3;
     qp_attr.sq_psn = 0;
     qp_attr.max_rd_atomic = 1;
-    attr_mask = IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT |
-                IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC;
-    
-    ret_qp = modify_qp(qp, &qp_attr, NULL, attr_mask);
+
+    ret_qp = ibv_modify_qp(qp, &qp_attr,
+        IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT |
+        IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC);
     if (ret_qp) {
         SPDLOG_ERROR("Couldn't modify QP to RTS (errno={})", errno);
         exit(EXIT_FAILURE);
@@ -338,15 +353,7 @@ int main(int argc, char *argv[]) {
     // -------------------------------------------------------------------
     // Step G: Query Port Attributes and Generate DPU RDMA Info (Namecard)
     // -------------------------------------------------------------------
-    SPDLOG_DEBUG("Querying port attributes to generate network credentials...");
-
-    struct ibv_port_attr port_attr = {};
-    int ib_port = 1; // Default IB port
-    
-    if (ibv_query_port(context, ib_port, &port_attr)) {
-        SPDLOG_ERROR("Failed to query IB port attributes.");
-        exit(EXIT_FAILURE);
-    }
+    SPDLOG_DEBUG("Generating network credentials...");
 
     DpuRdmaInfo my_info = {};
     my_info.qp_num = network_qp->qp_num;
