@@ -509,16 +509,16 @@ int main(int argc, char *argv[]) {
             }
 
             // with timeout protection to prevent infinite blocking due to network packet loss
-            uint64_t poll_count = 0;
+            uint64_t poll_count_hop2 = 0;
             while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0) {
-                poll_count++;
+                poll_count_hop2++;
                 // poll 50000000 times (approximately seconds), if timeout, break
-                if (poll_count > 50000000) { 
+                if (poll_count_hop2 > 50000000) { 
                     SPDLOG_ERROR("Hop 2 CQ polling timeout! Network unreachable, packet dropped, or routing issue.");
                     break;
                 }
             }
-            if (poll_count > 50000000) break;
+            if (poll_count_hop2 > 50000000) break;
 
             // print the RDMA status error code
             if (wc.status != IBV_WC_SUCCESS) {
@@ -551,12 +551,13 @@ int main(int argc, char *argv[]) {
                 SPDLOG_DEBUG("Hop 3: Pushing data to Host Mirror Buffer via MMO...");
                 
                 uint32_t dest_mkey = mirror_alias->lkey; 
+                uint32_t payload_size = RING_BUF_SIZE; // Define payload_size locally
                 
                 ibv_wr_start(qp_ex);
                 qp_ex->wr_flags = IBV_SEND_SIGNALED;
                 
-                // Use authentic host_mirror_vaddr here
-                mlx5dv_wr_memcpy(mqp_ex, dest_mkey, host_mirror_vaddr, inbound_mr->lkey, (uint64_t)inbound_buf, sync_msg.payload_size);
+                // Use authentic host_mirror_vaddr and local payload_size
+                mlx5dv_wr_memcpy(mqp_ex, dest_mkey, host_mirror_vaddr, inbound_mr->lkey, (uint64_t)inbound_buf, payload_size);
                 
                 int complete_ret = ibv_wr_complete(qp_ex);
                 if (complete_ret != 0) {
