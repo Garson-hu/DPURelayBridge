@@ -447,14 +447,14 @@ int main(int argc, char *argv[]) {
             struct ibv_wc wc = {};
             while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0);
             if (wc.status != IBV_WC_SUCCESS) {
-                SPDLOG_ERROR("Hop 1 (Local Pull) failed. Status: {}", wc.status);
+                SPDLOG_ERROR("Hop 1 (Local Pull) failed. Status: {}", (int)wc.status);
                 break;
             }
             SPDLOG_INFO("Hop 1 Complete. Data is now in outbound_buf.");
 
             // Hop 2: Network Push (DPU A outbound_buf -> DPU B inbound_buf)
             SPDLOG_DEBUG("Hop 2: Pushing data to Remote DPU via RDMA WRITE...");
-            SPDLOG_DEBUG("Hop 2 Payload size to send: {} bytes", sync_msg.payload_size);
+            SPDLOG_DEBUG("Hop 2 Payload size to send: {} bytes", (uint32_t)sync_msg.payload_size);
 
             struct ibv_sge sge = {};
             sge.addr   = (uint64_t)outbound_buf;
@@ -492,8 +492,7 @@ int main(int argc, char *argv[]) {
 
             // print the RDMA status error code
             if (wc.status != IBV_WC_SUCCESS) {
-                SPDLOG_ERROR("Hop 2 (Network Push) failed. Status: {} ({})", wc.status, ibv_wc_status_str(wc.status));
-                break;
+                SPDLOG_ERROR("Hop 2 (Network Push) failed. Status: {} ({})", (int)wc.status, ibv_wc_status_str(wc.status));                break;
             }
             SPDLOG_INFO("Hop 2 Complete. Payload successfully sent across network.");
 
@@ -510,7 +509,7 @@ int main(int argc, char *argv[]) {
         if (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc_net) > 0) {
             // Filter out successful Send completions that might fall through
             if (wc_net.status != IBV_WC_SUCCESS) {
-                SPDLOG_ERROR("Network CQ error. Status: {}", wc_net.status);
+                SPDLOG_ERROR("Network CQ error. Status: {}", (int)wc_net.status);
                 break;
             }
 
@@ -531,7 +530,7 @@ int main(int argc, char *argv[]) {
                 struct ibv_wc wc_mmo = {};
                 while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc_mmo) == 0);
                 if (wc_mmo.status != IBV_WC_SUCCESS) {
-                    SPDLOG_ERROR("Hop 3 (Local Push) failed. Status: {}", wc_mmo.status);
+                    SPDLOG_ERROR("Hop 3 (Local Push) failed. Status: {}", (int)wc_mmo.status);
                     break;
                 }
                 
