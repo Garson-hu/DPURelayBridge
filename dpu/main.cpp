@@ -454,6 +454,8 @@ int main(int argc, char *argv[]) {
 
             // Hop 2: Network Push (DPU A outbound_buf -> DPU B inbound_buf)
             SPDLOG_DEBUG("Hop 2: Pushing data to Remote DPU via RDMA WRITE...");
+            SPDLOG_DEBUG("Hop 2 Payload size to send: {} bytes", sync_msg.payload_size);
+
             struct ibv_sge sge = {};
             sge.addr   = (uint64_t)outbound_buf;
             sge.length = sync_msg.payload_size;
@@ -469,11 +471,28 @@ int main(int argc, char *argv[]) {
             wr.wr.rdma.remote_addr = remote_info.vaddr;
             wr.wr.rdma.rkey = remote_info.rkey;
 
-            ibv_post_send(network_qp, &wr, &bad_wr);
+            // check the return value of ibv_post_send
+            int send_ret = ibv_post_send(network_qp, &wr, &bad_wr);
+            if (send_ret != 0) {
+                SPDLOG_ERROR("Hop 2 ibv_post_send failed! Errno: {} ({})", send_ret, strerror(send_ret));
+                break;
+            }
 
-            while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0);
+            // with timeout protection to prevent infinite blocking due to network packet loss
+            uint64_t poll_count = 0;
+            while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0) {
+                poll_count++;
+                // poll 50000000 times (approximately seconds), if timeout, break
+                if (poll_count > 50000000) { 
+                    SPDLOG_ERROR("Hop 2 CQ polling timeout! Network unreachable, packet dropped, or routing issue.");
+                    break;
+                }
+            }
+            if (poll_count > 50000000) break;
+
+            // print the RDMA status error code
             if (wc.status != IBV_WC_SUCCESS) {
-                SPDLOG_ERROR("Hop 2 (Network Push) failed. Status: {}", wc.status);
+                SPDLOG_ERROR("Hop 2 (Network Push) failed. Status: {} ({})", wc.status, ibv_wc_status_str(wc.status));
                 break;
             }
             SPDLOG_INFO("Hop 2 Complete. Payload successfully sent across network.");
