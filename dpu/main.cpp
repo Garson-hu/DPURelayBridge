@@ -523,6 +523,7 @@ int main(int argc, char *argv[]) {
             }
 
             // with timeout protection to prevent infinite blocking due to network packet loss
+            struct ibv_wc wc = {};
             uint64_t poll_count_hop2 = 0;
             while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0) {
                 poll_count_hop2++;
