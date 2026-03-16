@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <getopt.h>
+#include <fcntl.h>
 
 #include "../common/protocol.h"
 #include "../common/logger.h"
@@ -403,7 +404,135 @@ int main(int argc, char *argv[]) {
     }
 
     SPDLOG_INFO("Network QP is now in RTS state.");
+
+    // -------------------------------------------------------------------
+    // Phase 4: Data Plane Event Loop (Local Pull -> Network Push -> Local Push)
+    // -------------------------------------------------------------------
+    SPDLOG_INFO("[DPU]: Entering Data Plane event loop...");
+
+    // 1. Post a Receive WR on Network QP to catch upcoming RDMA WRITE WITH IMM
+    struct ibv_recv_wr recv_wr = {};
+    struct ibv_recv_wr *bad_recv_wr = nullptr;
+    recv_wr.wr_id = 100;
     
+    if (ibv_post_recv(network_qp, &recv_wr, &bad_recv_wr)) {
+        SPDLOG_ERROR("Failed to post receive WR on Network QP");
+        exit(EXIT_FAILURE);
+    }
+
+    // 2. Set TCP socket to non-blocking for asynchronous polling
+    int flags = fcntl(client_socket, F_GETFL, 0);
+    fcntl(client_socket, F_SETFL, flags | O_NONBLOCK);
+
+    bool running = true;
+    while (running) {
+        // --- Event Source A: Check for Host TCP Trigger (SYNC_START) ---
+        DataSyncMsg sync_msg = {};
+        ssize_t ret = recv(client_socket, &sync_msg, sizeof(DataSyncMsg), 0);
+        
+        if (ret == sizeof(DataSyncMsg) && sync_msg.op == SYNC_START) {
+            SPDLOG_INFO("Phase 4 [Sender]: Received START trigger from Host.");
+
+            // Hop 1: Local Pull (Host A -> DPU A outbound_buf)
+            SPDLOG_DEBUG("Hop 1: Pulling data from Host Primary Buffer via MMO...");
+            
+            // Assume the mkey member inside cgmk_mr_crossing is named 'mkey'
+            // Please adjust if it is named 'alias_mkey' or 'id' in your struct
+            uint32_t src_mkey = primary_alias->mkey; 
+            
+            ibv_wr_start(qp_ex);
+            mqp_ex->wr_flags = IBV_SEND_SIGNALED;
+            mlx5dv_wr_memcpy(mqp_ex, outbound_mr->lkey, (uint64_t)outbound_buf, src_mkey, 0, sync_msg.payload_size);
+            ibv_wr_complete(qp_ex);
+
+            // Wait for Hop 1 completion
+            struct ibv_wc wc = {};
+            while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0);
+            if (wc.status != IBV_WC_SUCCESS) {
+                SPDLOG_ERROR("Hop 1 (Local Pull) failed. Status: {}", wc.status);
+                break;
+            }
+            SPDLOG_INFO("Hop 1 Complete. Data is now in outbound_buf.");
+
+            // Hop 2: Network Push (DPU A outbound_buf -> DPU B inbound_buf)
+            SPDLOG_DEBUG("Hop 2: Pushing data to Remote DPU via RDMA WRITE...");
+            struct ibv_sge sge = {};
+            sge.addr   = (uint64_t)outbound_buf;
+            sge.length = sync_msg.payload_size;
+            sge.lkey   = outbound_mr->lkey;
+
+            struct ibv_send_wr wr = {}, *bad_wr = nullptr;
+            wr.wr_id = 200;
+            wr.sg_list = &sge;
+            wr.num_sge = 1;
+            wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
+            wr.send_flags = IBV_SEND_SIGNALED;
+            wr.imm_data = htonl(0x8888); 
+            wr.wr.rdma.remote_addr = remote_info.vaddr;
+            wr.wr.rdma.rkey = remote_info.rkey;
+
+            ibv_post_send(network_qp, &wr, &bad_wr);
+
+            while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0);
+            if (wc.status != IBV_WC_SUCCESS) {
+                SPDLOG_ERROR("Hop 2 (Network Push) failed. Status: {}", wc.status);
+                break;
+            }
+            SPDLOG_INFO("Hop 2 Complete. Payload successfully sent across network.");
+
+            // Notify local Host A
+            DataSyncMsg done_msg = {SYNC_DONE, sync_msg.payload_size};
+            
+            fcntl(client_socket, F_SETFL, flags);
+            send(client_socket, &done_msg, sizeof(DataSyncMsg), 0);
+            fcntl(client_socket, F_SETFL, flags | O_NONBLOCK);
+        }
+
+        // --- Event Source B: Check for Network CQ Events (Incoming RDMA WRITE) ---
+        struct ibv_wc wc_net = {};
+        if (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc_net) > 0) {
+            // Filter out successful Send completions that might fall through
+            if (wc_net.status != IBV_WC_SUCCESS) {
+                SPDLOG_ERROR("Network CQ error. Status: {}", wc_net.status);
+                break;
+            }
+
+            if (wc_net.opcode == IBV_WC_RECV_RDMA_WITH_IMM) {
+                SPDLOG_INFO("Phase 4 [Receiver]: IMM triggered. Hop 2 received.");
+                
+                // Hop 3: Local Push (DPU B inbound_buf -> Host B mirror_buf)
+                SPDLOG_DEBUG("Hop 3: Pushing data to Host Mirror Buffer via MMO...");
+                
+                uint32_t dest_mkey = mirror_alias->mkey; 
+                size_t payload_size = RING_BUF_SIZE; 
+                
+                ibv_wr_start(qp_ex);
+                mqp_ex->wr_flags = IBV_SEND_SIGNALED;
+                mlx5dv_wr_memcpy(mqp_ex, dest_mkey, 0, inbound_mr->lkey, (uint64_t)inbound_buf, payload_size);
+                ibv_wr_complete(qp_ex);
+
+                struct ibv_wc wc_mmo = {};
+                while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc_mmo) == 0);
+                if (wc_mmo.status != IBV_WC_SUCCESS) {
+                    SPDLOG_ERROR("Hop 3 (Local Push) failed. Status: {}", wc_mmo.status);
+                    break;
+                }
+                
+                SPDLOG_INFO("Hop 3 Complete. Payload injected into Host B memory.");
+
+                // Notify local Host B
+                DataSyncMsg done_msg = {SYNC_DONE, (uint32_t)payload_size};
+                
+                fcntl(client_socket, F_SETFL, flags);
+                send(client_socket, &done_msg, sizeof(DataSyncMsg), 0);
+                fcntl(client_socket, F_SETFL, flags | O_NONBLOCK);
+                
+                // Rearm receive WR for next transaction
+                ibv_post_recv(network_qp, &recv_wr, &bad_recv_wr);
+            }
+        }
+    }
+
     // Clean up resources (will keep until the program ends in actual application)
     dereg_cgmk_mr_crossing(primary_alias);
     dereg_cgmk_mr_crossing(mirror_alias);

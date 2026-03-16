@@ -363,12 +363,72 @@ int main(int argc, char *argv[]) {
     
     SPDLOG_INFO("Remote credentials forwarded. DPU highway is fully established!");
 
-    // NOTE: For Phase 4 (Actual data transfer), we will keep `sockfd` open to send the "START" trigger.
-    // But for now, we will hold the connection so the DPU program doesn't crash on socket close.
-    SPDLOG_INFO("Host Agent is now going to sleep.");
-    while(1) {
-        sleep(100);
+    // ---------------------------------------------------------
+    // Phase 4: Data Plane Execution and Verification
+    // ---------------------------------------------------------
+    if (usr_par.is_server) {
+        // Host A (Sender): Generate test data and trigger DPU A
+        SPDLOG_INFO("[Sender]: Preparing test payload in Primary Buffer...");
+        
+        // Fill 16MB primary_buf with character 'A'
+        memset(primary_buf, 'A', BUF_SIZE); 
+        
+        SPDLOG_INFO("[Sender]: Sending START signal to local DPU...");
+        DataSyncMsg sync_msg = {SYNC_START, BUF_SIZE};
+        send(sockfd, &sync_msg, sizeof(DataSyncMsg), 0);
+        
+        // Wait for DPU A to confirm it has pulled the data and sent it out
+        recv(sockfd, &sync_msg, sizeof(DataSyncMsg), MSG_WAITALL);
+        if (sync_msg.op == SYNC_DONE) {
+            SPDLOG_INFO("[Sender]: Local DPU reported transmission complete.");
+        }
+        
+    } else {
+        // Host B (Receiver): Wait for DPU B to push data into mirror_buf
+        SPDLOG_INFO("[Receiver]: Waiting for DPU to push data and send DONE signal...");
+        
+        DataSyncMsg sync_msg = {};
+        ssize_t ret = recv(sockfd, &sync_msg, sizeof(DataSyncMsg), MSG_WAITALL);
+        
+        if (ret == sizeof(DataSyncMsg) && sync_msg.op == SYNC_DONE) {
+            SPDLOG_INFO("[Receiver]: DONE signal received. Verifying Mirror Buffer...");
+            
+            char* ptr = (char*)mirror_buf;
+            bool verification_passed = true;
+            
+            // Verify if all 16MB bytes are 'A'
+            for (size_t i = 0; i < BUF_SIZE; i++) {
+                if (ptr[i] != 'A') {
+                    verification_passed = false;
+                    SPDLOG_ERROR("Data mismatch at offset {}. Expected 'A', got 0x{:02x}", i, ptr[i]);
+                    break;
+                }
+            }
+            
+            if (verification_passed) {
+                SPDLOG_INFO("[Receiver]: SUCCESS! 16MB payload verified perfectly.");
+            } else {
+                SPDLOG_ERROR("[Receiver]: FAILURE! Payload verification failed.");
+            }
+        } else {
+            SPDLOG_ERROR("[Receiver]: Connection lost or invalid sync message.");
+        }
     }
+
+    // ---------------------------------------------------------
+    // Step G: Release resources
+    // ---------------------------------------------------------
+    SPDLOG_INFO("Cleaning up Host resources and shutting down...");
+    close(sockfd);
+    dereg_cgmk_mkey(primary_mr);
+    dereg_cgmk_mkey(mirror_mr);
+    free(primary_buf);
+    free(mirror_buf);
+    ibv_dealloc_pd(pd);
+    ibv_close_device(context);
+    ibv_free_device_list(dev_list);
+
+    SPDLOG_INFO("Host Agent exited gracefully.");
     
     // ---------------------------------------------------------
     // Release resources

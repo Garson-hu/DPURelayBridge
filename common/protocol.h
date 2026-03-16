@@ -26,3 +26,19 @@ struct DpuRdmaInfo {
     uint32_t rkey;       // RKey of the remote DPU's ring_buf
     uint64_t vaddr;      // Start address of the remote DPU's ring_buf
 } __attribute__((packed));
+
+
+
+/*
+ * Phase 4: Data Plane Synchronization Message
+ * Used between Local Host and Local DPU to trigger and confirm data transfer.
+ */
+ enum SyncOp {
+    SYNC_START = 0,
+    SYNC_DONE  = 1
+};
+
+struct DataSyncMsg {
+    SyncOp op;
+    uint32_t payload_size;   // How many bytes to transfer
+} __attribute__((packed));
