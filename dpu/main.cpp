@@ -126,10 +126,10 @@ int main(int argc, char *argv[]) {
     qp_init_attr_ex.sq_sig_all = 1;
     qp_init_attr_ex.send_cq = ibv_cq_ex_to_cq(cq_ex);
     qp_init_attr_ex.recv_cq = ibv_cq_ex_to_cq(cq_ex);
-    qp_init_attr_ex.cap.max_send_wr = 1;
-    qp_init_attr_ex.cap.max_recv_wr = 0;
-    qp_init_attr_ex.cap.max_send_sge = 1;
-    qp_init_attr_ex.cap.max_recv_sge = 0;
+    qp_init_attr_ex.cap.max_send_wr = 64; 
+    qp_init_attr_ex.cap.max_recv_wr = 64; 
+    qp_init_attr_ex.cap.max_send_sge = 4; 
+    qp_init_attr_ex.cap.max_recv_sge = 4;
     qp_init_attr_ex.qp_type = IBV_QPT_RC;
     qp_init_attr_ex.send_ops_flags = IBV_QP_EX_WITH_RDMA_WRITE |
                                      IBV_QP_EX_WITH_SEND |
@@ -453,10 +453,13 @@ int main(int argc, char *argv[]) {
             
             uint32_t src_mkey = primary_alias->lkey; 
             
+            // print all parameters to ensure the length and address are correct
+            SPDLOG_DEBUG("Hop 1 Params: dest_lkey={}, dest_addr=0x{:x}, src_lkey={}, src_addr=0x{:x}, size={}", 
+                         outbound_mr->lkey, (uint64_t)outbound_buf, src_mkey, host_primary_vaddr, (uint32_t)sync_msg.payload_size);
+            
             ibv_wr_start(qp_ex);
             qp_ex->wr_flags = IBV_SEND_SIGNALED;
             
-            // Use authentic host_primary_vaddr here
             mlx5dv_wr_memcpy(mqp_ex, outbound_mr->lkey, (uint64_t)outbound_buf, src_mkey, host_primary_vaddr, sync_msg.payload_size);
             
             int complete_ret = ibv_wr_complete(qp_ex);
