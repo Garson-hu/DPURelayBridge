@@ -126,8 +126,8 @@ int main(int argc, char *argv[]) {
     qp_init_attr_ex.sq_sig_all = 1;
     qp_init_attr_ex.send_cq = ibv_cq_ex_to_cq(cq_ex);
     qp_init_attr_ex.recv_cq = ibv_cq_ex_to_cq(cq_ex);
-    qp_init_attr_ex.cap.max_send_wr = 64; 
-    qp_init_attr_ex.cap.max_recv_wr = 64; 
+    qp_init_attr_ex.cap.max_send_wr = 128; 
+    qp_init_attr_ex.cap.max_recv_wr = 128; 
     qp_init_attr_ex.cap.max_send_sge = 4; 
     qp_init_attr_ex.cap.max_recv_sge = 4;
     qp_init_attr_ex.qp_type = IBV_QPT_RC;
@@ -452,37 +452,48 @@ int main(int argc, char *argv[]) {
             SPDLOG_DEBUG("Hop 1: Pulling data from Host Primary Buffer via MMO...");
             
             uint32_t src_mkey = primary_alias->lkey; 
-            
-            // print all parameters to ensure the length and address are correct
-            SPDLOG_DEBUG("Hop 1 Params: dest_lkey={}, dest_addr=0x{:x}, src_lkey={}, src_addr=0x{:x}, size={}", 
-                         outbound_mr->lkey, (uint64_t)outbound_buf, src_mkey, host_primary_vaddr, (uint32_t)sync_msg.payload_size);
-            
-            ibv_wr_start(qp_ex);
-            qp_ex->wr_flags = IBV_SEND_SIGNALED;
-            
-            mlx5dv_wr_memcpy(mqp_ex, outbound_mr->lkey, (uint64_t)outbound_buf, src_mkey, host_primary_vaddr, sync_msg.payload_size);
-            
-            int complete_ret = ibv_wr_complete(qp_ex);
-            if (complete_ret != 0) {
-                SPDLOG_ERROR("Hop 1 ibv_wr_complete failed! Errno: {}", complete_ret);
-                break;
-            }
+            uint32_t chunk_size = 4 * 1024 * 1024; // 4MB chunks
+            uint32_t offset = 0;
+            bool hop1_success = true;
 
-            // Wait for Hop 1 completion with timeout mechanism
-            struct ibv_wc wc = {};
-            int poll_count = 0;
-            while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0) {
-                if (++poll_count > 50000000) {
-                    SPDLOG_ERROR("Hop 1 CQ polling timeout! Hardware execution stuck.");
+            while (offset < sync_msg.payload_size) {
+                uint32_t current_chunk = std::min(chunk_size, sync_msg.payload_size - offset);
+                
+                ibv_wr_start(qp_ex);
+                qp_ex->wr_id = 101; 
+                qp_ex->wr_flags = IBV_SEND_SIGNALED;
+                
+                mlx5dv_wr_memcpy(mqp_ex, 
+                                 outbound_mr->lkey, (uint64_t)outbound_buf + offset, 
+                                 src_mkey, host_primary_vaddr + offset, 
+                                 current_chunk);
+                
+                int complete_ret = ibv_wr_complete(qp_ex);
+                if (complete_ret != 0) {
+                    SPDLOG_ERROR("Hop 1 ibv_wr_complete failed at offset {}! Errno: {}", offset, complete_ret);
+                    hop1_success = false;
                     break;
                 }
-            }
-            if (poll_count > 50000000) break;
 
-            if (wc.status != IBV_WC_SUCCESS) {
-                SPDLOG_ERROR("Hop 1 (Local Pull) failed. Status: {}", (int)wc.status);
-                break;
+                struct ibv_wc wc = {};
+                int poll_count = 0;
+                while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0) {
+                    if (++poll_count > 50000000) {
+                        SPDLOG_ERROR("Hop 1 CQ polling timeout!");
+                        hop1_success = false;
+                        break;
+                    }
+                }
+                if (!hop1_success) break;
+                
+                if (wc.status != IBV_WC_SUCCESS) {
+                    SPDLOG_ERROR("Hop 1 failed. Status: {}", (int)wc.status);
+                    hop1_success = false;
+                    break;
+                }
+                offset += current_chunk;
             }
+            if (!hop1_success) break;
             SPDLOG_INFO("Hop 1 Complete. Data is now in outbound_buf.");
 
             // Hop 2: Network Push (DPU A outbound_buf -> DPU B inbound_buf)
@@ -554,34 +565,49 @@ int main(int argc, char *argv[]) {
                 SPDLOG_DEBUG("Hop 3: Pushing data to Host Mirror Buffer via MMO...");
                 
                 uint32_t dest_mkey = mirror_alias->lkey; 
-                uint32_t payload_size = RING_BUF_SIZE; // Define payload_size locally
-                
-                ibv_wr_start(qp_ex);
-                qp_ex->wr_flags = IBV_SEND_SIGNALED;
-                
-                // Use authentic host_mirror_vaddr and local payload_size
-                mlx5dv_wr_memcpy(mqp_ex, dest_mkey, host_mirror_vaddr, inbound_mr->lkey, (uint64_t)inbound_buf, payload_size);
-                
-                int complete_ret = ibv_wr_complete(qp_ex);
-                if (complete_ret != 0) {
-                    SPDLOG_ERROR("Hop 3 ibv_wr_complete failed! Errno: {}", complete_ret);
-                    break;
-                }
+                uint32_t payload_size = RING_BUF_SIZE; 
+                uint32_t chunk_size = 4 * 1024 * 1024;
+                uint32_t offset = 0;
+                bool hop3_success = true;
 
-                struct ibv_wc wc_mmo = {};
-                int poll_count_mmo = 0;
-                while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc_mmo) == 0) {
-                    if (++poll_count_mmo > 50000000) {
-                        SPDLOG_ERROR("Hop 3 CQ polling timeout! Hardware execution stuck.");
+                while (offset < payload_size) {
+                    uint32_t current_chunk = std::min(chunk_size, payload_size - offset);
+                    
+                    ibv_wr_start(qp_ex);
+                    qp_ex->wr_id = 301; 
+                    qp_ex->wr_flags = IBV_SEND_SIGNALED;
+                    
+                    mlx5dv_wr_memcpy(mqp_ex, 
+                                     dest_mkey, host_mirror_vaddr + offset, 
+                                     inbound_mr->lkey, (uint64_t)inbound_buf + offset, 
+                                     current_chunk);
+                    
+                    int complete_ret = ibv_wr_complete(qp_ex);
+                    if (complete_ret != 0) {
+                        SPDLOG_ERROR("Hop 3 ibv_wr_complete failed! Errno: {}", complete_ret);
+                        hop3_success = false;
                         break;
                     }
-                }
-                if (poll_count_mmo > 50000000) break;
 
-                if (wc_mmo.status != IBV_WC_SUCCESS) {
-                    SPDLOG_ERROR("Hop 3 (Local Push) failed. Status: {}", (int)wc_mmo.status);
-                    break;
+                    struct ibv_wc wc_mmo = {};
+                    int poll_count_mmo = 0;
+                    while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc_mmo) == 0) {
+                        if (++poll_count_mmo > 50000000) {
+                            SPDLOG_ERROR("Hop 3 CQ polling timeout!");
+                            hop3_success = false;
+                            break;
+                        }
+                    }
+                    if (!hop3_success) break;
+                    
+                    if (wc_mmo.status != IBV_WC_SUCCESS) {
+                        SPDLOG_ERROR("Hop 3 failed. Status: {}", (int)wc_mmo.status);
+                        hop3_success = false;
+                        break;
+                    }
+                    offset += current_chunk;
                 }
+                if (!hop3_success) break;
                 
                 SPDLOG_INFO("Hop 3 Complete. Payload injected into Host B memory.");
 
