@@ -266,6 +266,21 @@ int main(int argc, char *argv[]) {
     SPDLOG_INFO("desc_str = {}", primary_info.desc_str);
     SPDLOG_INFO("Received credentials!");
     
+
+    // -------------------------------------------------------------------
+    // Step C.1: Extract actual virtual addresses from descriptors
+    // -------------------------------------------------------------------
+    desc_data p_data;
+    deserialize_desc_data(primary_info.desc_str, strlen(primary_info.desc_str) + 1, &p_data);
+    uint64_t host_primary_vaddr = (uint64_t)p_data.buf;
+
+    desc_data m_data;
+    deserialize_desc_data(mirror_info.desc_str, strlen(mirror_info.desc_str) + 1, &m_data);
+    uint64_t host_mirror_vaddr = (uint64_t)m_data.buf;
+
+    SPDLOG_INFO("Extracted Host Primary VAddr: 0x{:x}", host_primary_vaddr);
+    SPDLOG_INFO("Extracted Host Mirror VAddr: 0x{:x}", host_mirror_vaddr);
+    
     // -------------------------------------------------------------------
     // Step D: use DevX to create cross-domain mkeys for the primary and mirror buffers
     // -------------------------------------------------------------------
@@ -440,12 +455,27 @@ int main(int argc, char *argv[]) {
             
             ibv_wr_start(qp_ex);
             qp_ex->wr_flags = IBV_SEND_SIGNALED;
-            mlx5dv_wr_memcpy(mqp_ex, outbound_mr->lkey, (uint64_t)outbound_buf, src_mkey, 0, sync_msg.payload_size);
-            ibv_wr_complete(qp_ex);
+            
+            // Use authentic host_primary_vaddr here
+            mlx5dv_wr_memcpy(mqp_ex, outbound_mr->lkey, (uint64_t)outbound_buf, src_mkey, host_primary_vaddr, sync_msg.payload_size);
+            
+            int complete_ret = ibv_wr_complete(qp_ex);
+            if (complete_ret != 0) {
+                SPDLOG_ERROR("Hop 1 ibv_wr_complete failed! Errno: {}", complete_ret);
+                break;
+            }
 
-            // Wait for Hop 1 completion
+            // Wait for Hop 1 completion with timeout mechanism
             struct ibv_wc wc = {};
-            while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0);
+            int poll_count = 0;
+            while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc) == 0) {
+                if (++poll_count > 50000000) {
+                    SPDLOG_ERROR("Hop 1 CQ polling timeout! Hardware execution stuck.");
+                    break;
+                }
+            }
+            if (poll_count > 50000000) break;
+
             if (wc.status != IBV_WC_SUCCESS) {
                 SPDLOG_ERROR("Hop 1 (Local Pull) failed. Status: {}", (int)wc.status);
                 break;
@@ -492,7 +522,8 @@ int main(int argc, char *argv[]) {
 
             // print the RDMA status error code
             if (wc.status != IBV_WC_SUCCESS) {
-                SPDLOG_ERROR("Hop 2 (Network Push) failed. Status: {} ({})", (int)wc.status, ibv_wc_status_str(wc.status));                break;
+                SPDLOG_ERROR("Hop 2 (Network Push) failed. Status: {} ({})", (int)wc.status, ibv_wc_status_str(wc.status));                
+                break;
             }
             SPDLOG_INFO("Hop 2 Complete. Payload successfully sent across network.");
 
@@ -520,15 +551,29 @@ int main(int argc, char *argv[]) {
                 SPDLOG_DEBUG("Hop 3: Pushing data to Host Mirror Buffer via MMO...");
                 
                 uint32_t dest_mkey = mirror_alias->lkey; 
-                size_t payload_size = RING_BUF_SIZE; 
                 
                 ibv_wr_start(qp_ex);
                 qp_ex->wr_flags = IBV_SEND_SIGNALED;
-                mlx5dv_wr_memcpy(mqp_ex, dest_mkey, 0, inbound_mr->lkey, (uint64_t)inbound_buf, payload_size);
-                ibv_wr_complete(qp_ex);
+                
+                // Use authentic host_mirror_vaddr here
+                mlx5dv_wr_memcpy(mqp_ex, dest_mkey, host_mirror_vaddr, inbound_mr->lkey, (uint64_t)inbound_buf, sync_msg.payload_size);
+                
+                int complete_ret = ibv_wr_complete(qp_ex);
+                if (complete_ret != 0) {
+                    SPDLOG_ERROR("Hop 3 ibv_wr_complete failed! Errno: {}", complete_ret);
+                    break;
+                }
 
                 struct ibv_wc wc_mmo = {};
-                while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc_mmo) == 0);
+                int poll_count_mmo = 0;
+                while (ibv_poll_cq(ibv_cq_ex_to_cq(cq_ex), 1, &wc_mmo) == 0) {
+                    if (++poll_count_mmo > 50000000) {
+                        SPDLOG_ERROR("Hop 3 CQ polling timeout! Hardware execution stuck.");
+                        break;
+                    }
+                }
+                if (poll_count_mmo > 50000000) break;
+
                 if (wc_mmo.status != IBV_WC_SUCCESS) {
                     SPDLOG_ERROR("Hop 3 (Local Push) failed. Status: {}", (int)wc_mmo.status);
                     break;
