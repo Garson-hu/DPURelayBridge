@@ -431,14 +431,12 @@ int main(int argc, char *argv[]) {
         ssize_t ret = recv(client_socket, &sync_msg, sizeof(DataSyncMsg), 0);
         
         if (ret == sizeof(DataSyncMsg) && sync_msg.op == SYNC_START) {
-            SPDLOG_INFO("Phase 4 [Sender]: Received START trigger from Host.");
+            SPDLOG_INFO("[DPU]: Received START trigger from Host.");
 
             // Hop 1: Local Pull (Host A -> DPU A outbound_buf)
             SPDLOG_DEBUG("Hop 1: Pulling data from Host Primary Buffer via MMO...");
             
-            // Assume the mkey member inside cgmk_mr_crossing is named 'mkey'
-            // Please adjust if it is named 'alias_mkey' or 'id' in your struct
-            uint32_t src_mkey = primary_alias->mkey; 
+            uint32_t src_mkey = primary_alias->lkey; 
             
             ibv_wr_start(qp_ex);
             mqp_ex->wr_flags = IBV_SEND_SIGNALED;
