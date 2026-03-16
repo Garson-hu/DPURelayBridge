@@ -439,7 +439,7 @@ int main(int argc, char *argv[]) {
             uint32_t src_mkey = primary_alias->lkey; 
             
             ibv_wr_start(qp_ex);
-            mqp_ex->wr_flags = IBV_SEND_SIGNALED;
+            qp_ex->wr_flags = IBV_SEND_SIGNALED;
             mlx5dv_wr_memcpy(mqp_ex, outbound_mr->lkey, (uint64_t)outbound_buf, src_mkey, 0, sync_msg.payload_size);
             ibv_wr_complete(qp_ex);
 
@@ -501,11 +501,11 @@ int main(int argc, char *argv[]) {
                 // Hop 3: Local Push (DPU B inbound_buf -> Host B mirror_buf)
                 SPDLOG_DEBUG("Hop 3: Pushing data to Host Mirror Buffer via MMO...");
                 
-                uint32_t dest_mkey = mirror_alias->mkey; 
+                uint32_t dest_mkey = mirror_alias->lkey; 
                 size_t payload_size = RING_BUF_SIZE; 
                 
                 ibv_wr_start(qp_ex);
-                mqp_ex->wr_flags = IBV_SEND_SIGNALED;
+                qp_ex->wr_flags = IBV_SEND_SIGNALED;
                 mlx5dv_wr_memcpy(mqp_ex, dest_mkey, 0, inbound_mr->lkey, (uint64_t)inbound_buf, payload_size);
                 ibv_wr_complete(qp_ex);
 
